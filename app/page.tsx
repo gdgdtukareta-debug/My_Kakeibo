@@ -1,21 +1,26 @@
 "use client";
 import React, { useState, useEffect } from 'react';
 import { db } from '../lib/firebase'; 
-import { doc, getDoc, setDoc, arrayUnion } from "firebase/firestore";
+import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
+import { Pie } from 'react-chartjs-2';
+
+ChartJS.register(ArcElement, Tooltip, Legend);
 
 export default function Home() {
-  // 状態管理
   const [dailyBudget, setDailyBudget] = useState(1000);
   const [payday, setPayday] = useState(25);
   const [balance, setBalance] = useState(0);
+  const [totalSpent, setTotalSpent] = useState(0);
   const [expense, setExpense] = useState("");
-  const [category, setCategory] = useState("食費"); // デフォルトの分類
+  const [category, setCategory] = useState("食費");
   const [loading, setLoading] = useState(true);
-  const [isSettingMode, setIsSettingMode] = useState(false); // 設定画面の切り替え
+  const [isSettingMode, setIsSettingMode] = useState(false);
+  const [chartData, setChartData] = useState<any>(null);
+  const [history, setHistory] = useState<any[]>([]);
 
   const categories = ["食費", "日用品", "趣味", "仕事", "その他"];
 
-  // データの読み込み
   const loadData = async () => {
     try {
       const docRef = doc(db, "kakeibo", "user_data");
@@ -23,147 +28,181 @@ export default function Home() {
       
       let currentBudget = 1000;
       let currentPayday = 25;
-      let totalExpense = 0;
+      let rawHistory: any[] = [];
 
       if (docSnap.exists()) {
         const data = docSnap.data();
-        // 予算と給料日の設定があれば読み込む
         if (data.settings) {
           currentBudget = data.settings.dailyBudget || 1000;
           currentPayday = data.settings.payday || 25;
           setDailyBudget(currentBudget);
           setPayday(currentPayday);
         }
-        // 支出履歴から合計を計算
-        if (data.history) {
-          totalExpense = data.history.reduce((sum: number, item: { amount: number }) => sum + item.amount, 0);
-        }
+        rawHistory = data.history || [];
       }
+
+      // 新しい順に並び替え
+      const sortedHistory = [...rawHistory].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      setHistory(sortedHistory);
+
+      const catTotals: { [key: string]: number } = {};
+      categories.forEach(c => catTotals[c] = 0);
+      let total = 0;
+      rawHistory.forEach(item => {
+        total += item.amount;
+        catTotals[item.category] = (catTotals[item.category] || 0) + item.amount;
+      });
+
+      setTotalSpent(total);
+      
+      const isOverBudget = (total > 0) && ( (Math.ceil(Math.abs(new Date().getTime() - new Date(new Date().getFullYear(), new Date().getMonth(), currentPayday).getTime()) / (1000 * 60 * 60 * 24)) * currentBudget) - total < 0);
+      const normalColors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
+      const warningColors = ['#ef4444', '#f87171', '#dc2626', '#b91c1c', '#991b1b'];
+
+      setChartData({
+        labels: categories,
+        datasets: [{
+          data: categories.map(c => catTotals[c]),
+          backgroundColor: isOverBudget ? warningColors : normalColors,
+          borderWidth: 1,
+        }]
+      });
 
       const now = new Date();
       let startDate = new Date(now.getFullYear(), now.getMonth(), currentPayday);
-      if (now < startDate) {
-          startDate = new Date(now.getFullYear(), now.getMonth() - 1, currentPayday);
-      }
-      const diffTime = Math.abs(now.getTime() - startDate.getTime());
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      
-      setBalance((diffDays * currentBudget) - totalExpense);
-    } catch (e) {
-      console.error("読み込みエラー:", e);
-    } finally {
-      setLoading(false);
-    }
+      if (now < startDate) startDate = new Date(now.getFullYear(), now.getMonth() - 1, currentPayday);
+      const diffDays = Math.ceil(Math.abs(now.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+      setBalance((diffDays * currentBudget) - total);
+    } catch (e) { console.error(e); } finally { setLoading(false); }
   };
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  useEffect(() => { loadData(); }, []);
 
-  // 支出の保存
   const handlePayment = async () => {
     const amount = Number(expense);
     if (!amount || amount <= 0) return;
-
     try {
       const docRef = doc(db, "kakeibo", "user_data");
-      await setDoc(docRef, {
-        history: arrayUnion({
-          amount: amount,
-          category: category, // 分類を保存
-          date: new Date().toISOString()
-        })
-      }, { merge: true });
-
-      setBalance(prev => prev - amount);
+      const newHistory = [...history, { amount, category, date: new Date().toISOString() }];
+      await updateDoc(docRef, { history: newHistory });
       setExpense("");
-      alert(`${category}として ¥${amount} を保存しました！`);
-    } catch (e) {
-      alert("保存に失敗しました。");
-    }
+      loadData();
+      alert("保存しました！");
+    } catch (e) { alert("失敗しました"); }
   };
 
-  // 予算・給料日の設定保存
-  const saveSettings = async () => {
+  const deleteItem = async (index: number) => {
+    if (!confirm("この記録を消去しますか？")) return;
     try {
-      const docRef = doc(db, "kakeibo", "user_data");
-      await setDoc(docRef, {
-        settings: {
-          dailyBudget: dailyBudget,
-          payday: payday
-        }
-      }, { merge: true });
-      setIsSettingMode(false);
-      loadData(); // 再計算のために再読み込み
-      alert("設定を更新しました！");
-    } catch (e) {
-      alert("設定の保存に失敗しました。");
-    }
+      const newHistory = history.filter((_, i) => i !== index);
+      await updateDoc(doc(db, "kakeibo", "user_data"), { history: newHistory });
+      loadData();
+    } catch (e) { alert("削除失敗"); }
   };
 
-  if (loading) return <div className="p-8 text-center text-gray-500">読み込み中...</div>;
+  const editItem = async (index: number) => {
+    const newAmount = prompt("新しい金額を入力してください", history[index].amount);
+    if (newAmount === null || isNaN(Number(newAmount))) return;
+    try {
+      const newHistory = [...history];
+      newHistory[index].amount = Number(newAmount);
+      await updateDoc(doc(db, "kakeibo", "user_data"), { history: newHistory });
+      loadData();
+    } catch (e) { alert("修正失敗"); }
+  };
+
+  if (loading) return <div className="p-8 text-center text-gray-500 font-mono">Loading...</div>;
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6 font-sans text-gray-900">
+    <div className="min-h-screen bg-gray-50 p-4 font-sans text-gray-900">
       <div className="max-w-md mx-auto">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-xl font-bold text-gray-700">My家計簿</h1>
-          <button 
-            onClick={() => setIsSettingMode(!isSettingMode)}
-            className="text-sm text-blue-600 font-bold"
-          >
-            {isSettingMode ? "閉じる" : "予算設定"}
+        {/* ヘッダー部分は以前と同じ */}
+        <div className="flex justify-between items-center mb-4">
+          <h1 className="text-lg font-bold text-gray-700 font-mono italic">MY KAKEIBO</h1>
+          <button onClick={() => setIsSettingMode(!isSettingMode)} className="text-[10px] bg-white border border-gray-200 px-3 py-1 rounded-full text-gray-400 font-bold uppercase tracking-widest shadow-sm">
+            {isSettingMode ? "CLOSE" : "SETTINGS"}
           </button>
         </div>
-        
+
         {isSettingMode ? (
-          /* 設定画面 */
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-blue-100 mb-8">
-            <h2 className="font-bold mb-4 text-blue-800">基本設定</h2>
-            <div className="space-y-4">
-              <div>
-                <label className="text-xs text-gray-400 block mb-1">1日の予算 (円)</label>
-                <input type="number" className="w-full p-3 bg-gray-50 rounded-xl" 
-                  value={dailyBudget} onChange={(e) => setDailyBudget(Number(e.target.value))} />
-              </div>
-              <div>
-                <label className="text-xs text-gray-400 block mb-1">給料日 (日)</label>
-                <input type="number" className="w-full p-3 bg-gray-50 rounded-xl" 
-                  value={payday} onChange={(e) => setPayday(Number(e.target.value))} />
-              </div>
-              <button onClick={saveSettings} className="w-full bg-blue-600 text-white p-3 rounded-xl font-bold">
-                設定を保存する
-              </button>
-            </div>
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-blue-100">
+             <h2 className="font-bold mb-4 text-sm text-blue-800">BUDGET SETTINGS</h2>
+             <div className="space-y-4">
+               <div>
+                 <label className="text-[10px] text-gray-400 font-bold ml-1">DAILY BUDGET (円)</label>
+                 <input type="number" className="w-full p-3 bg-gray-50 rounded-xl mt-1" value={dailyBudget} onChange={(e)=>setDailyBudget(Number(e.target.value))} />
+               </div>
+               <div>
+                 <label className="text-[10px] text-gray-400 font-bold ml-1">PAYDAY (日)</label>
+                 <input type="number" className="w-full p-3 bg-gray-50 rounded-xl mt-1" value={payday} onChange={(e)=>setPayday(Number(e.target.value))} />
+               </div>
+               <button onClick={async () => {
+                 await updateDoc(doc(db, "kakeibo", "user_data"), { settings: { dailyBudget, payday } });
+                 setIsSettingMode(false);
+                 loadData();
+               }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold text-sm shadow-lg shadow-blue-100">UPDATE SETTINGS</button>
+             </div>
           </div>
         ) : (
-          /* メイン画面 */
           <>
-            <div className="bg-gradient-to-br from-blue-600 to-blue-400 p-8 rounded-3xl mb-8 shadow-xl text-white">
-              <p className="text-sm opacity-90 mb-1">今日使えるお金</p>
-              <p className="text-5xl font-mono font-bold italic">¥{balance.toLocaleString()}</p>
+            {/* メインの残高表示 */}
+            <div className="bg-white p-6 rounded-3xl mb-4 shadow-sm border border-gray-100">
+                <p className="text-[10px] font-bold text-gray-300 mb-1 uppercase tracking-tighter">Current Balance</p>
+                <p className={`text-4xl font-mono font-bold ${balance < 0 ? 'text-red-500' : 'text-blue-600'}`}>
+                    ¥{balance.toLocaleString()}
+                </p>
+                <p className="text-[10px] text-gray-400 mt-2">TOTAL SPENT: ¥{totalSpent.toLocaleString()}</p>
             </div>
-            
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-              <label className="block text-xs text-gray-400 mb-3 uppercase font-bold">分類を選択</label>
+
+            {/* 入力エリア */}
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 mb-4">
               <div className="flex flex-wrap gap-2 mb-4">
                 {categories.map(cat => (
                   <button key={cat} onClick={() => setCategory(cat)}
-                    className={`px-4 py-2 rounded-full text-sm font-bold transition-all ${category === cat ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all ${category === cat ? 'bg-blue-600 text-white shadow-md' : 'bg-gray-50 text-gray-400'}`}>
                     {cat}
                   </button>
                 ))}
               </div>
-
               <div className="flex gap-2">
-                <input type="number" inputMode="numeric" placeholder="金額を入力" 
-                  className="flex-1 p-4 bg-gray-50 rounded-xl text-2xl outline-none"
+                <input type="number" inputMode="numeric" placeholder="0" 
+                  className="w-28 p-3 bg-gray-50 rounded-xl text-xl font-mono outline-none"
                   value={expense} onChange={(e) => setExpense(e.target.value)} />
-                <button onClick={handlePayment} className="bg-blue-600 text-white px-6 rounded-xl font-bold active:scale-95">
-                  保存
+                <button onClick={handlePayment} className="flex-1 bg-blue-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-blue-100 active:scale-95 transition-all">
+                  SAVE
                 </button>
               </div>
             </div>
+
+            {/* 直近3件の履歴 */}
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 mb-4">
+              <p className="text-[10px] font-bold text-gray-400 mb-3 uppercase tracking-widest">Recent History</p>
+              <div className="space-y-3">
+                {history.slice(0, 3).map((item, index) => (
+                  <div key={index} className="flex items-center justify-between border-b border-gray-50 pb-2">
+                    <div>
+                      <span className="text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-0.5 rounded mr-2">{item.category}</span>
+                      <span className="text-sm font-mono font-bold">¥{item.amount.toLocaleString()}</span>
+                    </div>
+                    <div className="flex gap-3">
+                      <button onClick={() => editItem(index)} className="text-blue-400 text-xs">編集</button>
+                      <button onClick={() => deleteItem(index)} className="text-red-400 text-xs">削除</button>
+                    </div>
+                  </div>
+                ))}
+                {history.length === 0 && <p className="text-xs text-gray-300 text-center">履歴がありません</p>}
+              </div>
+            </div>
+
+            {/* グラフ表示 */}
+            {chartData && totalSpent > 0 && (
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <p className="text-[10px] font-bold text-gray-400 mb-4 uppercase tracking-widest text-center">Category Distribution</p>
+                <div className="px-8">
+                  <Pie data={chartData} options={{ plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 9 } } } } }} />
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>
