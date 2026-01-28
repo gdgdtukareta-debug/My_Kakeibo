@@ -1,0 +1,21 @@
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+import { getAnalytics } from "firebase/analytics";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
+  apiKey: "AIzaSyBFy2-ww0bAryW85eLAK7OtYc-rKxnwZgQ",
+  authDomain: "my-kakeibo-app-d55d8.firebaseapp.com",
+  projectId: "my-kakeibo-app-d55d8",
+  storageBucket: "my-kakeibo-app-d55d8.firebasestorage.app",
+  messagingSenderId: "554878763197",
+  appId: "1:554878763197:web:596dcebdaf89fc7c88b7d4",
+  measurementId: "G-9FEL78FYYQ"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const analytics = getAnalytics(app);
