@@ -101,11 +101,29 @@ export default function Home() {
   };
 
   const editItem = async (index: number) => {
-    const newAmount = prompt("新しい金額を入力してください", history[index].amount.toString());
+    const item = history[index];
+    
+    // 1. 金額の修正
+    const newAmount = prompt("新しい金額を入力してください", item.amount.toString());
     if (newAmount === null || isNaN(Number(newAmount))) return;
+
+    // 2. カテゴリーの修正
+    const catList = categories.join(", ");
+    const newCat = prompt(`新しいカテゴリーを入力してください\n(${catList})`, item.category);
+    
+    if (newCat === null || !categories.includes(newCat)) {
+      if (newCat !== null) alert("有効なカテゴリーを入力してください（" + catList + "）");
+      return;
+    }
+
     try {
       const newHistory = [...history];
-      newHistory[index].amount = Number(newAmount);
+      newHistory[index] = {
+        ...item,
+        amount: Number(newAmount),
+        category: newCat
+      };
+      
       await updateDoc(doc(db, "kakeibo", "user_data"), { history: newHistory });
       loadData();
     } catch (e) { alert("修正失敗"); }
@@ -162,11 +180,9 @@ export default function Home() {
                 ))}
               </div>
               <div className="flex gap-2">
-                {/* 修正ポイント：入力欄を固定幅(w-32)に、中央揃え(text-center)に変更 */}
                 <input type="number" inputMode="numeric" placeholder="0" 
                   className="w-32 p-4 bg-gray-50 rounded-xl text-2xl font-mono outline-none focus:bg-white focus:ring-2 focus:ring-blue-100 transition-all text-center"
                   value={expense} onChange={(e) => setExpense(e.target.value)} />
-                {/* 修正ポイント：保存ボタンを最大幅(flex-1)に、文字を少し大きく(text-lg)変更 */}
                 <button onClick={handlePayment} className="flex-1 bg-blue-600 text-white rounded-xl font-bold text-lg shadow-lg shadow-blue-100 active:scale-95 transition-all uppercase tracking-widest">
                   Save
                 </button>
