@@ -26,8 +26,7 @@ export default function Home() {
           const data = docSnap.data();
           if (data.history) {
             // 今回の給料日以降の支出だけを合計するロジック（簡易版）
-            totalExpense = data.history.reduce((sum: number, item: any) => sum + item.amount, 0);
-          }
+            totalExpense = data.history.reduce((sum: number, item: { amount: number }) => sum + item.amount, 0);
         }
 
         // 【2】今日までの予算を計算
