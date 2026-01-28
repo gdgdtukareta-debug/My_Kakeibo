@@ -162,12 +162,12 @@ export default function Home() {
                 ))}
               </div>
               <div className="flex gap-2">
-                {/* 金額入力欄を大きく (flex-1) */}
+                {/* 修正ポイント：入力欄を固定幅(w-32)に、中央揃え(text-center)に変更 */}
                 <input type="number" inputMode="numeric" placeholder="0" 
-                  className="flex-1 p-4 bg-gray-50 rounded-xl text-2xl font-mono outline-none focus:bg-white focus:ring-2 focus:ring-blue-100 transition-all"
+                  className="w-32 p-4 bg-gray-50 rounded-xl text-2xl font-mono outline-none focus:bg-white focus:ring-2 focus:ring-blue-100 transition-all text-center"
                   value={expense} onChange={(e) => setExpense(e.target.value)} />
-                {/* 保存ボタンを小さく (w-32) */}
-                <button onClick={handlePayment} className="w-32 bg-blue-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-blue-100 active:scale-95 transition-all uppercase tracking-widest">
+                {/* 修正ポイント：保存ボタンを最大幅(flex-1)に、文字を少し大きく(text-lg)変更 */}
+                <button onClick={handlePayment} className="flex-1 bg-blue-600 text-white rounded-xl font-bold text-lg shadow-lg shadow-blue-100 active:scale-95 transition-all uppercase tracking-widest">
                   Save
                 </button>
               </div>
