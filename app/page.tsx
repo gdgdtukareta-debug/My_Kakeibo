@@ -118,14 +118,14 @@ export default function Home() {
       <div className="max-w-md mx-auto">
         <div className="flex justify-between items-center mb-4">
           <h1 className="text-lg font-bold text-gray-700 font-mono italic">MY KAKEIBO</h1>
-          <button onClick={() => setIsSettingMode(!isSettingMode)} className="text-[10px] bg-white border border-gray-200 px-3 py-1 rounded-full text-gray-400 font-bold uppercase tracking-widest shadow-sm">
+          <button onClick={() => setIsSettingMode(!isSettingMode)} className="text-[10px] bg-white border border-gray-200 px-3 py-1 rounded-full text-gray-400 font-bold tracking-widest shadow-sm">
             {isSettingMode ? "CLOSE" : "SETTINGS"}
           </button>
         </div>
 
         {isSettingMode ? (
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-blue-100">
-             <h2 className="font-bold mb-4 text-sm text-blue-800 uppercase">Budget Settings</h2>
+             <h2 className="font-bold mb-4 text-sm text-blue-800 uppercase text-center">Budget Settings</h2>
              <div className="space-y-4">
                <div>
                  <label className="text-[10px] text-gray-400 font-bold ml-1">DAILY BUDGET</label>
@@ -139,7 +139,7 @@ export default function Home() {
                  await updateDoc(doc(db, "kakeibo", "user_data"), { settings: { dailyBudget, payday } });
                  setIsSettingMode(false);
                  loadData();
-               }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold text-sm shadow-lg shadow-blue-100">UPDATE SETTINGS</button>
+               }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold text-sm shadow-lg">UPDATE</button>
              </div>
           </div>
         ) : (
@@ -149,7 +149,7 @@ export default function Home() {
                 <p className={`text-4xl font-mono font-bold ${balance < 0 ? 'text-red-500' : 'text-blue-600'}`}>
                     ¥{balance.toLocaleString()}
                 </p>
-                <p className="text-[10px] text-gray-400 mt-2">TOTAL SPENT: ¥{totalSpent.toLocaleString()}</p>
+                <p className="text-[10px] text-gray-400 mt-2 font-bold">TOTAL SPENT: ¥{totalSpent.toLocaleString()}</p>
             </div>
 
             <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 mb-4">
@@ -162,10 +162,12 @@ export default function Home() {
                 ))}
               </div>
               <div className="flex gap-2">
+                {/* 金額入力欄を大きく (flex-1) */}
                 <input type="number" inputMode="numeric" placeholder="0" 
-                  className="w-28 p-3 bg-gray-50 rounded-xl text-xl font-mono outline-none focus:bg-white transition-all"
+                  className="flex-1 p-4 bg-gray-50 rounded-xl text-2xl font-mono outline-none focus:bg-white focus:ring-2 focus:ring-blue-100 transition-all"
                   value={expense} onChange={(e) => setExpense(e.target.value)} />
-                <button onClick={handlePayment} className="flex-1 bg-blue-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-blue-100 active:scale-95 transition-all uppercase tracking-widest">
+                {/* 保存ボタンを小さく (w-32) */}
+                <button onClick={handlePayment} className="w-32 bg-blue-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-blue-100 active:scale-95 transition-all uppercase tracking-widest">
                   Save
                 </button>
               </div>
