@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useEffect } from 'react';
 import { db } from '../lib/firebase'; 
-import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
 import { Pie } from 'react-chartjs-2';
 
@@ -10,8 +10,9 @@ ChartJS.register(ArcElement, Tooltip, Legend);
 export default function Home() {
   const [dailyBudget, setDailyBudget] = useState(1000);
   const [payday, setPayday] = useState(25);
+  const [monthlySavingTarget, setMonthlySavingTarget] = useState(0); // 固定貯金額
   const [balance, setBalance] = useState(0);
-  const [savings, setSavings] = useState(0); // 貯金残高
+  const [savings, setSavings] = useState(0);
   const [totalSpent, setTotalSpent] = useState(0);
   const [expense, setExpense] = useState("");
   const [category, setCategory] = useState("食費");
@@ -20,7 +21,6 @@ export default function Home() {
   const [chartData, setChartData] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
 
-  // 特別支出をカテゴリーに追加
   const categories = ["食費", "日用品", "趣味", "仕事", "その他", "特別支出"];
 
   const loadData = async () => {
@@ -30,6 +30,7 @@ export default function Home() {
       
       let currentBudget = 1000;
       let currentPayday = 25;
+      let currentMonthlySaving = 0;
       let currentSavings = 0;
       let rawHistory: any[] = [];
       let lastAccessedMonth = "";
@@ -39,38 +40,37 @@ export default function Home() {
         if (data.settings) {
           currentBudget = data.settings.dailyBudget || 1000;
           currentPayday = data.settings.payday || 25;
+          currentMonthlySaving = data.settings.monthlySavingTarget || 0;
           lastAccessedMonth = data.settings.lastAccessedMonth || "";
           setDailyBudget(currentBudget);
           setPayday(currentPayday);
+          setMonthlySavingTarget(currentMonthlySaving);
         }
         currentSavings = data.savings_balance || 0;
         rawHistory = data.history || [];
       }
 
-      // --- 月替わり（貯金転送）ロジック ---
+      // --- 月替わり（余剰金 + 固定貯金の転送）ロジック ---
       const now = new Date();
-      const currentMonthKey = `${now.getFullYear()}-${now.getMonth()}`; // 例: "2026-0"
+      const currentMonthKey = `${now.getFullYear()}-${now.getMonth()}`;
 
       if (lastAccessedMonth !== "" && lastAccessedMonth !== currentMonthKey) {
-        // 前月の余剰金を計算（簡易的に現在のbalanceを転送）
-        // ※厳密には前月末時点の計算が必要ですが、月替わり初回起動時に転送する処理とします
-        const startDate = new Date(now.getFullYear(), now.getMonth(), currentPayday);
         const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, currentPayday);
         const diffDays = Math.ceil(Math.abs(now.getTime() - prevMonthDate.getTime()) / (1000 * 60 * 60 * 24));
-        
-        // 前月の支出合計を算出
         const prevTotalSpent = rawHistory.reduce((sum, item) => sum + item.amount, 0);
+        
+        // 余剰金 ＋ 固定貯金額を合算
         const surplus = (diffDays * currentBudget) - prevTotalSpent;
+        const totalToSave = (surplus > 0 ? surplus : 0) + currentMonthlySaving;
 
-        if (surplus > 0) {
-          currentSavings += surplus;
-          // 貯金を更新し、前月の履歴をクリアする処理
+        if (totalToSave > 0) {
+          currentSavings += totalToSave;
           await updateDoc(docRef, {
             savings_balance: currentSavings,
-            history: [], // 新月なので履歴をリセット（必要に応じて全件保存用コレクションへ移す）
+            history: [], 
             "settings.lastAccessedMonth": currentMonthKey
           });
-          rawHistory = []; // ローカルデータもリセット
+          rawHistory = [];
         } else {
           await updateDoc(docRef, { "settings.lastAccessedMonth": currentMonthKey });
         }
@@ -80,7 +80,6 @@ export default function Home() {
       // --------------------------------
 
       setSavings(currentSavings);
-
       const sortedHistory = [...rawHistory].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       setHistory(sortedHistory);
 
@@ -123,19 +122,15 @@ export default function Home() {
     if (!amount || amount <= 0) return;
     try {
       const docRef = doc(db, "kakeibo", "user_data");
-      
-      // 特別支出の場合の処理
       let newSavings = savings;
       if (category === "特別支出") {
         newSavings -= amount;
       }
-
       const newHistory = [...history, { amount, category, date: new Date().toISOString() }];
       await updateDoc(docRef, { 
         history: newHistory,
         savings_balance: newSavings
       });
-      
       setExpense("");
       loadData();
     } catch (e) { alert("保存に失敗しました"); }
@@ -146,10 +141,7 @@ export default function Home() {
     try {
       const item = history[index];
       let newSavings = savings;
-      if (item.category === "特別支出") {
-        newSavings += item.amount; // 特別支出を消すなら貯金を戻す
-      }
-
+      if (item.category === "特別支出") newSavings += item.amount;
       const newHistory = history.filter((_, i) => i !== index);
       await updateDoc(doc(db, "kakeibo", "user_data"), { 
         history: newHistory,
@@ -163,25 +155,16 @@ export default function Home() {
     const item = history[index];
     const newAmount = prompt("新しい金額を入力してください", item.amount.toString());
     if (newAmount === null || isNaN(Number(newAmount))) return;
-
     const catList = categories.join(", ");
     const newCat = prompt(`新しいカテゴリーを入力してください\n(${catList})`, item.category);
-    
-    if (newCat === null || !categories.includes(newCat)) {
-      if (newCat !== null) alert("有効なカテゴリーを入力してください（" + catList + "）");
-      return;
-    }
+    if (newCat === null || !categories.includes(newCat)) return;
 
     try {
       const newHistory = [...history];
       let newSavings = savings;
-
-      // 貯金残高の再計算（特別支出が絡む場合）
       if (item.category === "特別支出") newSavings += item.amount;
       if (newCat === "特別支出") newSavings -= Number(newAmount);
-
       newHistory[index] = { ...item, amount: Number(newAmount), category: newCat };
-      
       await updateDoc(doc(db, "kakeibo", "user_data"), { 
         history: newHistory,
         savings_balance: newSavings
@@ -214,8 +197,15 @@ export default function Home() {
                  <label className="text-[10px] text-gray-400 font-bold ml-1">PAYDAY</label>
                  <input type="number" className="w-full p-3 bg-gray-50 rounded-xl mt-1 font-mono" value={payday} onChange={(e)=>setPayday(Number(e.target.value))} />
                </div>
+               {/* 固定貯金額の設定追加 */}
+               <div>
+                 <label className="text-[10px] text-gray-400 font-bold ml-1">MONTHLY FIXED SAVINGS</label>
+                 <input type="number" className="w-full p-3 bg-gray-50 rounded-xl mt-1 font-mono" value={monthlySavingTarget} onChange={(e)=>setMonthlySavingTarget(Number(e.target.value))} />
+               </div>
                <button onClick={async () => {
-                 await updateDoc(doc(db, "kakeibo", "user_data"), { settings: { dailyBudget, payday } });
+                 await updateDoc(doc(db, "kakeibo", "user_data"), { 
+                   settings: { dailyBudget, payday, monthlySavingTarget, lastAccessedMonth: `${new Date().getFullYear()}-${new Date().getMonth()}` } 
+                 });
                  setIsSettingMode(false);
                  loadData();
                }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold text-sm shadow-lg">UPDATE</button>
@@ -223,7 +213,6 @@ export default function Home() {
           </div>
         ) : (
           <>
-            {/* 貯金残高（イベント原資）の表示 */}
             <div className="flex gap-2 mb-4">
               <div className="flex-1 bg-white p-4 rounded-3xl shadow-sm border border-gray-100">
                   <p className="text-[10px] font-bold text-gray-300 mb-1 uppercase tracking-tighter">Current Balance</p>
