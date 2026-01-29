@@ -10,7 +10,7 @@ ChartJS.register(ArcElement, Tooltip, Legend);
 export default function Home() {
   const [dailyBudget, setDailyBudget] = useState(1000);
   const [payday, setPayday] = useState(25);
-  const [monthlySavingTarget, setMonthlySavingTarget] = useState(0); // 固定貯金額
+  const [monthlySavingTarget, setMonthlySavingTarget] = useState(0); 
   const [balance, setBalance] = useState(0);
   const [savings, setSavings] = useState(0);
   const [totalSpent, setTotalSpent] = useState(0);
@@ -50,7 +50,7 @@ export default function Home() {
         rawHistory = data.history || [];
       }
 
-      // --- 月替わり（余剰金 + 固定貯金の転送）ロジック ---
+      // --- 月替わりロジック ---
       const now = new Date();
       const currentMonthKey = `${now.getFullYear()}-${now.getMonth()}`;
 
@@ -59,7 +59,6 @@ export default function Home() {
         const diffDays = Math.ceil(Math.abs(now.getTime() - prevMonthDate.getTime()) / (1000 * 60 * 60 * 24));
         const prevTotalSpent = rawHistory.reduce((sum, item) => sum + item.amount, 0);
         
-        // 余剰金 ＋ 固定貯金額を合算
         const surplus = (diffDays * currentBudget) - prevTotalSpent;
         const totalToSave = (surplus > 0 ? surplus : 0) + currentMonthlySaving;
 
@@ -77,7 +76,6 @@ export default function Home() {
       } else if (lastAccessedMonth === "") {
         await updateDoc(docRef, { "settings.lastAccessedMonth": currentMonthKey });
       }
-      // --------------------------------
 
       setSavings(currentSavings);
       const sortedHistory = [...rawHistory].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -173,6 +171,40 @@ export default function Home() {
     } catch (e) { alert("修正失敗"); }
   };
 
+  // --- 今すぐ貯金に反映させる処理 ---
+  const handleUpdateSettings = async () => {
+    try {
+      const docRef = doc(db, "kakeibo", "user_data");
+      // 今すぐ反映したい金額を確認
+      if (confirm(`固定貯金額 ¥${monthlySavingTarget.toLocaleString()} を今すぐSavingsに反映させますか？\n（今月分をまだ入れていない場合に使用してください）`)) {
+        const newSavings = savings + monthlySavingTarget;
+        await updateDoc(docRef, { 
+          settings: { 
+            dailyBudget, 
+            payday, 
+            monthlySavingTarget, 
+            lastAccessedMonth: `${new Date().getFullYear()}-${new Date().getMonth()}` 
+          },
+          savings_balance: newSavings
+        });
+      } else {
+        // 設定のみ更新
+        await updateDoc(docRef, { 
+          settings: { 
+            dailyBudget, 
+            payday, 
+            monthlySavingTarget, 
+            lastAccessedMonth: `${new Date().getFullYear()}-${new Date().getMonth()}` 
+          }
+        });
+      }
+      setIsSettingMode(false);
+      loadData();
+    } catch (e) {
+      alert("設定の更新に失敗しました");
+    }
+  };
+
   if (loading) return <div className="p-8 text-center text-gray-500 font-mono">Loading...</div>;
 
   return (
@@ -197,18 +229,11 @@ export default function Home() {
                  <label className="text-[10px] text-gray-400 font-bold ml-1">PAYDAY</label>
                  <input type="number" className="w-full p-3 bg-gray-50 rounded-xl mt-1 font-mono" value={payday} onChange={(e)=>setPayday(Number(e.target.value))} />
                </div>
-               {/* 固定貯金額の設定追加 */}
                <div>
                  <label className="text-[10px] text-gray-400 font-bold ml-1">MONTHLY FIXED SAVINGS</label>
                  <input type="number" className="w-full p-3 bg-gray-50 rounded-xl mt-1 font-mono" value={monthlySavingTarget} onChange={(e)=>setMonthlySavingTarget(Number(e.target.value))} />
                </div>
-               <button onClick={async () => {
-                 await updateDoc(doc(db, "kakeibo", "user_data"), { 
-                   settings: { dailyBudget, payday, monthlySavingTarget, lastAccessedMonth: `${new Date().getFullYear()}-${new Date().getMonth()}` } 
-                 });
-                 setIsSettingMode(false);
-                 loadData();
-               }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold text-sm shadow-lg">UPDATE</button>
+               <button onClick={handleUpdateSettings} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold text-sm shadow-lg">UPDATE & APPLY</button>
              </div>
           </div>
         ) : (
