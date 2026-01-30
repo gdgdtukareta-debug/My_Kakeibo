@@ -283,7 +283,7 @@ export default function Home() {
                   </button>
                 </div>
                 {/* メモ入力欄の追加 */}
-                <input type="text" placeholder="何に使った？（例：リハビリ靴、おやつ代）"
+                <input type="text" placeholder="何に使った？（例：おやつ代）"
                   className="w-full p-3 bg-gray-50 rounded-xl text-xs outline-none focus:bg-white focus:ring-2 focus:ring-blue-50 transition-all"
                   value={memo} onChange={(e) => setMemo(e.target.value)} />
               </div>
