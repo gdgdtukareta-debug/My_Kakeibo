@@ -57,9 +57,13 @@ export default function Home() {
       if (lastAccessedMonth !== "" && lastAccessedMonth !== currentMonthKey) {
         const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, currentPayday);
         const diffDays = Math.ceil(Math.abs(now.getTime() - prevMonthDate.getTime()) / (1000 * 60 * 60 * 24));
-        const prevTotalSpent = rawHistory.reduce((sum, item) => sum + item.amount, 0);
         
-        const surplus = (diffDays * currentBudget) - prevTotalSpent;
+        // 前月の「通常支出」のみを集計して余剰金を出す
+        const prevRegularSpent = rawHistory
+          .filter(item => item.category !== "特別支出")
+          .reduce((sum, item) => sum + item.amount, 0);
+        
+        const surplus = (diffDays * currentBudget) - prevRegularSpent;
         const totalToSave = (surplus > 0 ? surplus : 0) + currentMonthlySaving;
 
         if (totalToSave > 0) {
@@ -83,18 +87,25 @@ export default function Home() {
 
       const catTotals: { [key: string]: number } = {};
       categories.forEach(c => catTotals[c] = 0);
-      let total = 0;
+      let totalAll = 0;      // グラフ用の全合計
+      let totalRegular = 0;  // 残高計算用の通常支出合計
+
       rawHistory.forEach(item => {
-        total += item.amount;
+        totalAll += item.amount;
         catTotals[item.category] = (catTotals[item.category] || 0) + item.amount;
+        if (item.category !== "特別支出") {
+          totalRegular += item.amount;
+        }
       });
 
-      setTotalSpent(total);
+      setTotalSpent(totalAll);
       
       let startDate = new Date(now.getFullYear(), now.getMonth(), currentPayday);
       if (now < startDate) startDate = new Date(now.getFullYear(), now.getMonth() - 1, currentPayday);
       const diffDays = Math.ceil(Math.abs(now.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
-      const currentBalance = (diffDays * currentBudget) - total;
+      
+      // 【重要修正】残高計算には「通常支出」のみを使用する
+      const currentBalance = (diffDays * currentBudget) - totalRegular;
       setBalance(currentBalance);
 
       const isOverBudget = currentBalance < 0;
@@ -171,32 +182,26 @@ export default function Home() {
     } catch (e) { alert("修正失敗"); }
   };
 
-  // --- 今すぐ貯金に反映させる処理 ---
   const handleUpdateSettings = async () => {
     try {
       const docRef = doc(db, "kakeibo", "user_data");
-      // 今すぐ反映したい金額を確認
-      if (confirm(`固定貯金額 ¥${monthlySavingTarget.toLocaleString()} を今すぐSavingsに反映させますか？\n（今月分をまだ入れていない場合に使用してください）`)) {
+      const result = confirm(`設定を更新します。\nさらに、固定貯金額 ¥${monthlySavingTarget.toLocaleString()} を今すぐSavingsに反映（加算）させますか？`);
+      
+      const newSettings = { 
+        dailyBudget, 
+        payday, 
+        monthlySavingTarget, 
+        lastAccessedMonth: `${new Date().getFullYear()}-${new Date().getMonth()}` 
+      };
+
+      if (result) {
         const newSavings = savings + monthlySavingTarget;
         await updateDoc(docRef, { 
-          settings: { 
-            dailyBudget, 
-            payday, 
-            monthlySavingTarget, 
-            lastAccessedMonth: `${new Date().getFullYear()}-${new Date().getMonth()}` 
-          },
+          settings: newSettings,
           savings_balance: newSavings
         });
       } else {
-        // 設定のみ更新
-        await updateDoc(docRef, { 
-          settings: { 
-            dailyBudget, 
-            payday, 
-            monthlySavingTarget, 
-            lastAccessedMonth: `${new Date().getFullYear()}-${new Date().getMonth()}` 
-          }
-        });
+        await updateDoc(docRef, { settings: newSettings });
       }
       setIsSettingMode(false);
       loadData();
