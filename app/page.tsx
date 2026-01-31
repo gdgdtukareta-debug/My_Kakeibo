@@ -7,13 +7,13 @@ import { Pie } from 'react-chartjs-2';
 
 ChartJS.register(ArcElement, Tooltip, Legend);
 
-// 型定義
+// --- 型定義 ---
 type Subscription = {
   id: string;
   name: string;
   amount: number;
-  day: number | ""; // 支払日（空の場合は月初）
-  lastPaid: string; // 最後に支払った月 (YYYY-MM)
+  day: number | ""; 
+  lastPaid: string; 
 };
 
 type HistoryItem = {
@@ -37,25 +37,25 @@ export default function Home() {
   const [monthlySavingTarget, setMonthlySavingTarget] = useState(0); 
   const [monthlyInvestmentTarget, setMonthlyInvestmentTarget] = useState(0);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
-  const [isCsvEnabled, setIsCsvEnabled] = useState(false); // CSV機能のON/OFF
+  const [isCsvEnabled, setIsCsvEnabled] = useState(false);
 
   // --- UI/Input State ---
   const [expense, setExpense] = useState("");
   const [memo, setMemo] = useState("");
-  const [inputDate, setInputDate] = useState(""); // 日付入力用
+  const [inputDate, setInputDate] = useState(""); 
   const [category, setCategory] = useState("食費");
   const [loading, setLoading] = useState(true);
   const [isSettingMode, setIsSettingMode] = useState(false);
   
-  // --- Data Visualization ---
+  // --- Data / Visualization ---
   const [totalSpent, setTotalSpent] = useState(0);
   const [chartData, setChartData] = useState<any>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
-  const [archive, setArchive] = useState<HistoryItem[]>([]); // 過去ログ保存用
+  const [archive, setArchive] = useState<HistoryItem[]>([]); 
 
   const categories = ["食費", "日用品", "趣味", "仕事", "その他", "特別支出", "投資・貯金", "臨時収入"];
 
-  // 今日の日付を YYYY-MM-DD 形式で取得
+  // YYYY-MM-DD 形式取得
   const getTodayString = () => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -65,6 +65,7 @@ export default function Home() {
     setInputDate(getTodayString());
   }, []);
 
+  // --- データ読み込み & 計算ロジック ---
   const loadData = async () => {
     try {
       const docRef = doc(db, "kakeibo", "user_data");
@@ -102,34 +103,29 @@ export default function Home() {
         currentSavings = data.savings_balance || 0;
         currentInvestmentBalance = data.investment_balance || 0;
         rawHistory = data.history || [];
-        rawArchive = data.archive || []; // アーカイブ読み込み
+        rawArchive = data.archive || []; 
       }
 
       const now = new Date();
-      const currentMonthKey = `${now.getFullYear()}-${now.getMonth()}`; // 例: 2026-0
+      const currentMonthKey = `${now.getFullYear()}-${now.getMonth()}`;
 
-      // --- 1. 月替わり処理 (アーカイブ & 積立) ---
+      // 1. 月替わり処理
       if (lastAccessedMonth !== "" && lastAccessedMonth !== currentMonthKey) {
         const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, currentPayday);
         const diffDays = Math.ceil(Math.abs(now.getTime() - prevMonthDate.getTime()) / (1000 * 60 * 60 * 24));
         
-        // 通常支出のみ集計
         const prevRegularSpent = rawHistory
           .filter(item => !["特別支出", "投資・貯金", "臨時収入"].includes(item.category))
           .reduce((sum, item) => sum + item.amount, 0);
         
         const surplus = (diffDays * currentBudget) - prevRegularSpent;
         
-        // 積立処理
-        const totalToSave = (surplus > 0 ? surplus : 0) + currentMonthlySaving;
-        currentSavings += totalToSave;
+        currentSavings += (surplus > 0 ? surplus : 0) + currentMonthlySaving;
         currentInvestmentBalance += currentMonthlyInvestment;
 
-        // 過去データをアーカイブへ移動（半年分程度保持などの制限は一旦なしで全保存）
         rawArchive = [...rawArchive, ...rawHistory];
-        rawHistory = []; // 現在の履歴はリセット
+        rawHistory = []; 
 
-        // Firestore更新
         await updateDoc(docRef, {
           savings_balance: currentSavings,
           investment_balance: currentInvestmentBalance,
@@ -141,23 +137,20 @@ export default function Home() {
         await updateDoc(docRef, { "settings.lastAccessedMonth": currentMonthKey });
       }
 
-      // --- 2. サブスク自動記帳ロジック ---
+      // 2. サブスク自動記帳
       let subsUpdated = false;
       const todayDate = now.getDate();
 
       currentSubs = currentSubs.map(sub => {
-        // まだ今月支払っていない かつ (支払日が設定なし または 今日が支払日を過ぎている)
         const targetDay = sub.day === "" ? 1 : Number(sub.day);
-        
         if (sub.lastPaid !== currentMonthKey && todayDate >= targetDay) {
-          // 支出として追加
           rawHistory.push({
             amount: Number(sub.amount),
-            category: "固定費", // 固定費というカテゴリを便宜上使用（なければその他でも可）
+            category: "固定費",
             memo: `[Sub] ${sub.name}`,
             date: new Date().toISOString()
           });
-          sub.lastPaid = currentMonthKey; // 支払済みに更新
+          sub.lastPaid = currentMonthKey;
           subsUpdated = true;
         }
         return sub;
@@ -178,10 +171,9 @@ export default function Home() {
       const sortedHistory = [...rawHistory].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       setHistory(sortedHistory);
 
-      // --- 集計 & 残高計算 ---
+      // 集計
       const catTotals: { [key: string]: number } = {};
       categories.forEach(c => catTotals[c] = 0);
-      // 固定費カテゴリがあれば集計に追加
       catTotals["固定費"] = 0; 
 
       let totalAll = 0;
@@ -192,7 +184,6 @@ export default function Home() {
         const cat = item.category === "固定費" && !categories.includes("固定費") ? "その他" : item.category;
         catTotals[cat] = (catTotals[cat] || 0) + item.amount;
 
-        // 生活費から引くもの（通常支出 + 固定費サブスク）
         if (!["特別支出", "投資・貯金", "臨時収入"].includes(item.category)) {
           totalRegular += item.amount;
         }
@@ -212,7 +203,7 @@ export default function Home() {
       const warningColors = ['#ef4444', '#f87171', '#dc2626', '#b91c1c', '#991b1b', '#db2777', '#4338ca', '#0d9488', '#475569'];
 
       setChartData({
-        labels: [...categories, "固定費"].filter(c => catTotals[c] > 0), // データがあるものだけ表示
+        labels: [...categories, "固定費"].filter(c => catTotals[c] > 0),
         datasets: [{
           data: [...categories, "固定費"].filter(c => catTotals[c] > 0).map(c => catTotals[c]),
           backgroundColor: isOverBudget ? warningColors : normalColors,
@@ -225,6 +216,7 @@ export default function Home() {
 
   useEffect(() => { loadData(); }, []);
 
+  // --- 支払い登録 ---
   const handlePayment = async () => {
     const amount = Number(expense);
     if (!amount || amount <= 0) return;
@@ -241,7 +233,6 @@ export default function Home() {
         newInvestmentBalance += amount;
       }
       
-      // 入力された日付を使用（時刻は現在の時刻を付与）
       const now = new Date();
       const entryDateObj = new Date(inputDate);
       entryDateObj.setHours(now.getHours(), now.getMinutes(), now.getSeconds());
@@ -265,12 +256,15 @@ export default function Home() {
     } catch (e) { alert("保存に失敗しました"); }
   };
 
+  // --- 削除機能 ---
   const deleteItem = async (index: number) => {
     if (!confirm("この記録を消去しますか？")) return;
     try {
       const item = history[index];
       let newSavings = savings;
       let newInv = investmentBalance;
+      
+      // お金を戻す処理
       if (item.category === "特別支出") newSavings += item.amount;
       if (item.category === "投資・貯金") newInv += item.amount;
       if (item.category === "臨時収入") newInv -= item.amount;
@@ -285,19 +279,68 @@ export default function Home() {
     } catch (e) { alert("削除失敗"); }
   };
 
-  // --- CSV Export Logic ---
+  // --- 編集機能 (復活) ---
+  const editItem = async (index: number) => {
+    const item = history[index];
+    
+    // 1. 新しい値の入力
+    const newAmountStr = prompt("修正後の金額:", item.amount.toString());
+    if (newAmountStr === null || isNaN(Number(newAmountStr))) return;
+    const newAmount = Number(newAmountStr);
+
+    const catList = categories.join(", ");
+    const newCat = prompt(`修正後のカテゴリー:\n(${catList})`, item.category);
+    if (newCat === null || !categories.includes(newCat) && newCat !== "固定費") return;
+
+    const newMemo = prompt("修正後のメモ:", item.memo || "");
+    if (newMemo === null) return;
+
+    try {
+      // 2. 財布の計算（古い履歴の影響を打ち消し、新しい履歴の影響を加える）
+      let newSavings = savings;
+      let newInv = investmentBalance;
+
+      // 古い履歴の取り消し
+      if (item.category === "特別支出") newSavings += item.amount;
+      else if (item.category === "投資・貯金") newInv += item.amount;
+      else if (item.category === "臨時収入") newInv -= item.amount;
+
+      // 新しい履歴の適用
+      if (newCat === "特別支出") newSavings -= newAmount;
+      else if (newCat === "投資・貯金") newInv -= newAmount;
+      else if (newCat === "臨時収入") newInv += newAmount;
+
+      // 3. 履歴データの更新
+      const newHistory = [...history];
+      newHistory[index] = {
+        ...item,
+        amount: newAmount,
+        category: newCat,
+        memo: newMemo
+      };
+
+      await updateDoc(doc(db, "kakeibo", "user_data"), {
+        history: newHistory,
+        savings_balance: newSavings,
+        investment_balance: newInv
+      });
+
+      loadData();
+    } catch (e) {
+      alert("編集に失敗しました");
+      console.error(e);
+    }
+  };
+
+  // --- CSV Export ---
   const handleExportCSV = () => {
-    // アーカイブと現在の履歴を結合
     const allData = [...archive, ...history];
-    // 日付で降順ソート
     allData.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-    // CSVヘッダー
     const header = "日付,項目,金額,メモ\n";
     const rows = allData.map(item => {
       const d = new Date(item.date);
       const dateStr = `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
-      // メモ内のカンマなどは除去またはエスケープ推奨だが簡易的に実装
       const cleanMemo = (item.memo || "").replace(/,/g, " "); 
       return `${dateStr},${item.category},${item.amount},${cleanMemo}`;
     }).join("\n");
@@ -311,7 +354,7 @@ export default function Home() {
     document.body.removeChild(link);
   };
 
-  // --- Subscriptions Management ---
+  // --- Settings Logic ---
   const addSubscription = async () => {
     const name = prompt("サブスク名を入力:");
     if (!name) return;
@@ -344,17 +387,13 @@ export default function Home() {
       const docRef = doc(db, "kakeibo", "user_data");
       const newSettings = { 
         dailyBudget, payday, monthlySavingTarget, monthlyInvestmentTarget, isCsvEnabled,
-        subscriptions, // サブスク情報も保存
+        subscriptions, 
         lastAccessedMonth: `${new Date().getFullYear()}-${new Date().getMonth()}` 
       };
       await updateDoc(docRef, { settings: newSettings });
       setIsSettingMode(false);
       loadData();
     } catch (e) { alert("設定の更新に失敗しました"); }
-  };
-
-  const editItem = async (index: number) => {
-     alert("編集機能は将来のアップデートで詳細対応予定です。現在は削除して再入力してください。");
   };
 
   if (loading) return <div className="p-8 text-center text-gray-500 font-mono">Loading...</div>;
@@ -397,7 +436,6 @@ export default function Home() {
                  </div>
                </div>
 
-               {/* SUBSCRIPTIONS SECTION */}
                <div className="space-y-2">
                  <div className="flex justify-between items-end border-b pb-1">
                    <p className="text-xs font-bold text-gray-400">SUBSCRIPTIONS</p>
@@ -415,7 +453,6 @@ export default function Home() {
                  ))}
                </div>
 
-               {/* CSV TOGGLE */}
                <div className="space-y-2">
                  <p className="text-xs font-bold text-gray-400 border-b pb-1">DATA MANAGEMENT</p>
                  <div className="flex items-center justify-between">
@@ -469,7 +506,6 @@ export default function Home() {
                 ))}
               </div>
               <div className="space-y-2">
-                {/* 日付入力欄の追加 */}
                 <input type="date" value={inputDate} onChange={(e) => setInputDate(e.target.value)} 
                   className="w-full p-2 bg-gray-50 rounded-lg text-xs font-mono text-gray-500 mb-1" />
 
@@ -502,7 +538,10 @@ export default function Home() {
                       </div>
                       {item.memo && <p className="text-[9px] text-gray-400 ml-1 mt-0.5">{item.memo}</p>}
                     </div>
-                    <button onClick={() => deleteItem(index)} className="text-red-300 text-[9px] font-bold uppercase hover:text-red-500">Del</button>
+                    <div className="flex gap-2">
+                      <button onClick={() => editItem(index)} className="text-blue-300 text-[9px] font-bold uppercase hover:text-blue-500">Edit</button>
+                      <button onClick={() => deleteItem(index)} className="text-red-300 text-[9px] font-bold uppercase hover:text-red-500">Del</button>
+                    </div>
                   </div>
                 ))}
               </div>
