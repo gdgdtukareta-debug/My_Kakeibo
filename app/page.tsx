@@ -7,70 +7,82 @@ import { Pie } from 'react-chartjs-2';
 
 ChartJS.register(ArcElement, Tooltip, Legend);
 
-// 型定義
+// --- 型定義 ---
 type Transaction = {
   amount: number;
   category: string;
   memo: string;
-  date: string; // ISOString
+  date: string; 
+  type?: 'expense' | 'income' | 'transfer'; // 収支の種類
 };
 
 type Subscription = {
   id: number;
   name: string;
   amount: number;
-  payDay: number | ""; // 空白なら月初の起動時に支払い
+  payDay: number | ""; 
   category: string;
-  lastPaidMonth: string; // "YYYY-M" 形式で支払い済み月を記録
+  lastPaidMonth: string; 
 };
 
-type Archives = {
-  [key: string]: Transaction[]; // "YYYY-M": [履歴]
-};
+type ThemeOption = 'light' | 'dark' | 'system';
+
+type Archives = { [key: string]: Transaction[] };
 
 export default function Home() {
-  // --- 基本設定 State ---
+  // --- 基本設定 ---
   const [dailyBudget, setDailyBudget] = useState(1000);
   const [payday, setPayday] = useState(25);
   const [monthlySavingTarget, setMonthlySavingTarget] = useState(0); 
   const [monthlyInvestmentTarget, setMonthlyInvestmentTarget] = useState(0); 
   
-  // --- 資産・収支 State ---
-  const [balance, setBalance] = useState(0);
-  const [savings, setSavings] = useState(0);
-  const [investmentBalance, setInvestmentBalance] = useState(0); 
+  // --- 資産 State (新構成) ---
+  const [balance, setBalance] = useState(0);           // 生活費残高
+  const [savings, setSavings] = useState(0);           // 特別費残高
+  const [investCash, setInvestCash] = useState(0);     // 投資用現金プール
+  const [investStock, setInvestStock] = useState(0);   // 投資運用額
   const [totalSpent, setTotalSpent] = useState(0);
+
+  // --- NISA & Subscriptions ---
+  const [nisaSettings, setNisaSettings] = useState({ enabled: false, amount: 0, day: 1, lastProcessedMonth: "" });
+  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   
-  // --- 入力フォーム State ---
+  // --- UI State ---
   const [expense, setExpense] = useState("");
   const [memo, setMemo] = useState(""); 
   const [category, setCategory] = useState("食費");
-  const [inputDate, setInputDate] = useState(""); // 日付入力用 (YYYY-MM-DD)
-
-  // --- アプリ制御 State ---
+  const [inputDate, setInputDate] = useState("");
   const [loading, setLoading] = useState(true);
   const [isSettingMode, setIsSettingMode] = useState(false);
   const [chartData, setChartData] = useState<any>(null);
   const [history, setHistory] = useState<Transaction[]>([]);
-  
-  // --- 新機能用 State ---
-  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [archives, setArchives] = useState<Archives>({});
-  const [isCsvMode, setIsCsvMode] = useState(false); // CSV機能のON/OFF
+  const [isCsvMode, setIsCsvMode] = useState(false);
+  
+  // --- テーマ & リセット用 ---
+  const [theme, setTheme] = useState<ThemeOption>('system');
+  const [tempResetValues, setTempResetValues] = useState({ special: 0, investCash: 0, investStock: 0 });
 
-  // カテゴリ定義
-  const categories = ["食費", "日用品", "趣味", "仕事", "その他", "特別支出", "投資・貯金", "臨時収入"];
+  // カテゴリ定義（日本語ベース）
+  const categories = ["食費", "日用品", "趣味", "仕事", "その他", "特別支出", "投資", "貯金", "臨時収入"];
 
-  // 今日の日付をセット (YYYY-MM-DD形式)
+  // --- 初期化 & テーマ適用 ---
   useEffect(() => {
     const today = new Date();
-    const yyyy = today.getFullYear();
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const dd = String(today.getDate()).padStart(2, '0');
-    setInputDate(`${yyyy}-${mm}-${dd}`);
+    setInputDate(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`);
   }, []);
 
-  // --- メインデータ読み込み & 自動処理ロジック ---
+  useEffect(() => {
+    const root = window.document.documentElement;
+    const applyTheme = (t: ThemeOption) => {
+      const isDark = t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      if (isDark) root.classList.add('dark');
+      else root.classList.remove('dark');
+    };
+    applyTheme(theme);
+  }, [theme]);
+
+  // --- データ読み込み & 自動処理 ---
   const loadData = async () => {
     try {
       const docRef = doc(db, "kakeibo", "user_data");
@@ -81,59 +93,65 @@ export default function Home() {
       let currentMonthlySaving = 0;
       let currentMonthlyInvestment = 0;
       let currentSavings = 0;
-      let currentInvestmentBalance = 0;
+      let currentInvestCash = 0;
+      let currentInvestStock = 0; // 新設
       let rawHistory: Transaction[] = [];
       let currentArchives: Archives = {};
       let currentSubs: Subscription[] = [];
+      let currentNisa = { enabled: false, amount: 0, day: 1, lastProcessedMonth: "" };
       let lastAccessedMonth = "";
-      let currentCsvMode = false;
 
       if (docSnap.exists()) {
         const data = docSnap.data();
-        if (data.settings) {
-          currentBudget = data.settings.dailyBudget || 1000;
-          currentPayday = data.settings.payday || 25;
-          currentMonthlySaving = data.settings.monthlySavingTarget || 0;
-          currentMonthlyInvestment = data.settings.monthlyInvestmentTarget || 0;
-          lastAccessedMonth = data.settings.lastAccessedMonth || "";
-          currentCsvMode = data.settings.isCsvMode || false;
-          
-          setDailyBudget(currentBudget);
-          setPayday(currentPayday);
-          setMonthlySavingTarget(currentMonthlySaving);
-          setMonthlyInvestmentTarget(currentMonthlyInvestment);
-          setIsCsvMode(currentCsvMode);
-        }
+        const s = data.settings || {};
+        currentBudget = s.dailyBudget || 1000;
+        currentPayday = s.payday || 25;
+        currentMonthlySaving = s.monthlySavingTarget || 0;
+        currentMonthlyInvestment = s.monthlyInvestmentTarget || 0;
+        lastAccessedMonth = s.lastAccessedMonth || "";
+        setTheme(s.theme || 'system');
+        setIsCsvMode(s.isCsvMode || false);
+        currentNisa = s.nisaSettings || currentNisa;
+
+        setDailyBudget(currentBudget);
+        setPayday(currentPayday);
+        setMonthlySavingTarget(currentMonthlySaving);
+        setMonthlyInvestmentTarget(currentMonthlyInvestment);
+        setNisaSettings(currentNisa);
+
         currentSavings = data.savings_balance || 0;
-        currentInvestmentBalance = data.investment_balance || 0;
+        // 旧データ互換: investment_balance があれば Cash に割り当て
+        currentInvestCash = data.invest_cash_balance ?? (data.investment_balance || 0);
+        currentInvestStock = data.invest_stock_balance || 0;
+        
         rawHistory = data.history || [];
         currentArchives = data.archives || {};
         currentSubs = data.subscriptions || [];
       } else {
-        await setDoc(docRef, { savings_balance: 0, investment_balance: 0, history: [], settings: {}, archives: {}, subscriptions: [] });
+        await setDoc(docRef, { savings_balance: 0, invest_cash_balance: 0, invest_stock_balance: 0, history: [], settings: {}, archives: [], subscriptions: [] });
       }
 
       const now = new Date();
-      const currentMonthKey = `${now.getFullYear()}-${now.getMonth()}`; // 月識別用 (0-11)
+      const currentMonthKey = `${now.getFullYear()}-${now.getMonth()}`;
 
-      // --- 1. 月替わり判定 & アーカイブ処理 ---
+      // 1. 月替わり判定
       let isMonthChanged = false;
       if (lastAccessedMonth !== "" && lastAccessedMonth !== currentMonthKey) {
-        // --- 残高計算ロジック（前月分） ---
         const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, currentPayday);
         const diffDays = Math.ceil(Math.abs(now.getTime() - lastMonthDate.getTime()) / (1000 * 60 * 60 * 24));
         const prevRegularSpent = rawHistory
-          .filter(item => !["特別支出", "投資・貯金", "臨時収入"].includes(item.category))
+          .filter(item => !["特別支出", "投資", "貯金", "臨時収入"].includes(item.category))
           .reduce((sum, item) => sum + item.amount, 0);
         
         const surplus = (diffDays * currentBudget) - prevRegularSpent;
-        currentSavings += (surplus > 0 ? surplus : 0) + currentMonthlySaving;
-        currentInvestmentBalance += currentMonthlyInvestment;
-
-        // --- アーカイブへの移動 ---
-        currentArchives[lastAccessedMonth] = rawHistory;
         
-        // アーカイブは最新6ヶ月分のみ保持する（データ肥大化防止）
+        // 特別費へ繰越
+        currentSavings += (surplus > 0 ? surplus : 0) + currentMonthlySaving;
+        // 投資・貯金（現金プール）へ定額積立
+        currentInvestCash += currentMonthlyInvestment;
+
+        // アーカイブ保存
+        currentArchives[lastAccessedMonth] = rawHistory;
         const sortedKeys = Object.keys(currentArchives).sort();
         if (sortedKeys.length > 6) {
           const newArchives: Archives = {};
@@ -141,74 +159,90 @@ export default function Home() {
           currentArchives = newArchives;
         }
 
-        rawHistory = []; // 履歴リセット
+        rawHistory = [];
         isMonthChanged = true;
       }
 
-      // --- 2. サブスク自動支払いチェック ---
-      let subPaymentMade = false;
+      // 2. サブスク自動支払い
+      let dataModified = false;
       const todayDate = now.getDate();
       
       const updatedSubs = currentSubs.map(sub => {
-        // まだ今月支払っていない かつ (日付指定なしかつ月替わり後 OR 今日が支払日以降)
         const isDue = sub.lastPaidMonth !== currentMonthKey;
         const isTime = sub.payDay === "" || todayDate >= (sub.payDay as number);
 
         if (isDue && isTime) {
-          // 支払い実行
-          subPaymentMade = true;
-          const subExpense = sub.amount;
+          dataModified = true;
+          const expense = sub.amount;
+          if (sub.category === "特別支出") currentSavings -= expense;
+          else if (sub.category === "貯金") currentInvestCash -= expense;
           
-          // 残高・履歴更新
-          if (sub.category === "特別支出") currentSavings -= subExpense;
-          else if (sub.category === "投資・貯金") currentInvestmentBalance -= subExpense;
-          else if (sub.category === "臨時収入") currentInvestmentBalance += subExpense;
-          // 通常支出はここではbalance stateには反映せず、history追加後の再計算に任せる
-
           rawHistory.push({
-            amount: subExpense,
-            category: sub.category,
-            memo: `[Sub] ${sub.name}`,
-            date: now.toISOString()
+            amount: expense, category: sub.category, memo: `[Sub] ${sub.name}`, date: now.toISOString(), type: 'expense'
           });
-
           return { ...sub, lastPaidMonth: currentMonthKey };
         }
         return sub;
       });
 
-      // --- 3. Firestore保存 (変更があった場合のみ) ---
-      if (isMonthChanged || subPaymentMade || lastAccessedMonth === "") {
+      // 3. NISA自動積立（現金 -> 投資 振替）
+      if (currentNisa.enabled && currentNisa.lastProcessedMonth !== currentMonthKey && todayDate >= currentNisa.day) {
+        dataModified = true;
+        currentInvestCash -= currentNisa.amount;
+        currentInvestStock += currentNisa.amount;
+        
+        rawHistory.push({
+          amount: currentNisa.amount,
+          category: "投資",
+          memo: "[Auto] NISA積立",
+          date: now.toISOString(),
+          type: 'transfer' // 振替扱い
+        });
+        currentNisa.lastProcessedMonth = currentMonthKey;
+        setNisaSettings(currentNisa);
+      }
+
+      // 保存
+      if (isMonthChanged || dataModified || lastAccessedMonth === "") {
         await updateDoc(docRef, {
           savings_balance: currentSavings,
-          investment_balance: currentInvestmentBalance,
+          invest_cash_balance: currentInvestCash,
+          invest_stock_balance: currentInvestStock,
           history: rawHistory,
           archives: currentArchives,
           subscriptions: updatedSubs,
-          "settings.lastAccessedMonth": currentMonthKey
+          "settings.lastAccessedMonth": currentMonthKey,
+          "settings.nisaSettings": currentNisa
         });
       }
 
-      // --- State更新 ---
+      // State反映
       setSavings(currentSavings);
-      setInvestmentBalance(currentInvestmentBalance);
+      setInvestCash(currentInvestCash);
+      setInvestStock(currentInvestStock);
       setSubscriptions(updatedSubs);
       setArchives(currentArchives);
       
+      // リセット用初期値
+      setTempResetValues({ special: currentSavings, investCash: currentInvestCash, investStock: currentInvestStock });
+
       const sortedHistory = [...rawHistory].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       setHistory(sortedHistory);
 
-      // --- 統計・残高計算 ---
+      // 集計
       const catTotals: { [key: string]: number } = {};
       categories.forEach(c => catTotals[c] = 0);
       let totalAll = 0;
       let totalRegular = 0;
 
       rawHistory.forEach(item => {
-        totalAll += item.amount;
-        catTotals[item.category] = (catTotals[item.category] || 0) + item.amount;
-        if (!["特別支出", "投資・貯金", "臨時収入"].includes(item.category)) {
-          totalRegular += item.amount;
+        // 振替(type=transfer)は支出合計に含めない、またはカテゴリ別のみ表示
+        if (item.type !== 'transfer') {
+            totalAll += item.amount;
+            catTotals[item.category] = (catTotals[item.category] || 0) + item.amount;
+            if (!["特別支出", "投資", "貯金", "臨時収入"].includes(item.category)) {
+              totalRegular += item.amount;
+            }
         }
       });
 
@@ -216,24 +250,19 @@ export default function Home() {
       
       // 給料日基準の残高計算
       let startDate = new Date(now.getFullYear(), now.getMonth(), currentPayday);
-      // もし現在日付が給料日前なら、開始日は先月の給料日
       if (now < startDate) startDate = new Date(now.getFullYear(), now.getMonth() - 1, currentPayday);
-      
-      const timeFromStart = Math.abs(now.getTime() - startDate.getTime());
-      const daysFromStart = Math.floor(timeFromStart / (1000 * 60 * 60 * 24)) + 1;
-      
+      const daysFromStart = Math.floor(Math.abs(now.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
       const currentBalance = (daysFromStart * currentBudget) - totalRegular;
       setBalance(currentBalance);
 
-      const isOverBudget = currentBalance < 0;
       setChartData({
         labels: categories,
         datasets: [{
           data: categories.map(c => catTotals[c]),
-          backgroundColor: isOverBudget 
-            ? ['#ef4444', '#f87171', '#dc2626', '#b91c1c', '#991b1b', '#db2777', '#4338ca', '#0d9488']
-            : ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#6366f1', '#14b8a6'],
-          borderWidth: 1,
+          backgroundColor: currentBalance < 0 
+            ? ['#ef4444', '#f87171', '#dc2626', '#b91c1c', '#991b1b', '#db2777', '#4338ca', '#0d9488', '#059669']
+            : ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#6366f1', '#14b8a6', '#84cc16'],
+          borderWidth: 0,
         }]
       });
 
@@ -242,32 +271,52 @@ export default function Home() {
 
   useEffect(() => { loadData(); }, []);
 
-  // --- 支払い処理 ---
+  // --- 支払い・入力処理 ---
   const handlePayment = async () => {
     const amount = Number(expense);
     if (!amount || amount <= 0) return;
     try {
       const docRef = doc(db, "kakeibo", "user_data");
       let newSavings = savings;
-      let newInv = investmentBalance;
+      let newInvestCash = investCash;
+      let newInvestStock = investStock;
+      let type: 'expense' | 'income' | 'transfer' = 'expense';
 
-      if (category === "特別支出") newSavings -= amount;
-      else if (category === "投資・貯金") newInv -= amount;
-      else if (category === "臨時収入") newInv += amount;
-      
-      // inputDateを使って日付オブジェクトを作成（時刻は現在時刻を付与）
+      // カテゴリごとのロジック
+      if (category === "特別支出") {
+        newSavings -= amount;
+      } else if (category === "貯金") {
+        // 「貯金」カテゴリでの入力＝「現金プール」からの支出、あるいは他への移動？
+        // ここではシンプルに「現金プールから使った」または「現金プールに手動で追加した(負の値)」等の解釈も可能だが
+        // Userの要望「臨時収入を追加」→ investCashが増える
+        // 今回の仕様：
+        // 臨時収入 -> investCash +
+        // 貯金 -> investCash - (支出) ?? or investCash + (入金)?
+        // 家計簿アプリの通例として、Entryボタンは「支出」が基本。
+        newInvestCash -= amount;
+      } else if (category === "投資") {
+        // 「投資」として記録＝現金プールから証券口座(Stock)へ移動したとみなす（振替）
+        newInvestCash -= amount;
+        newInvestStock += amount;
+        type = 'transfer';
+      } else if (category === "臨時収入") {
+        newInvestCash += amount;
+        type = 'income';
+      }
+
       const recordDate = new Date(inputDate);
       const now = new Date();
-      recordDate.setHours(now.getHours(), now.getMinutes(), now.getSeconds());
+      recordDate.setHours(now.getHours(), now.getMinutes());
 
       const newHistory = [...history, { 
-        amount, category, memo, date: recordDate.toISOString() 
+        amount, category, memo, date: recordDate.toISOString(), type
       }];
 
       await updateDoc(docRef, { 
         history: newHistory,
         savings_balance: newSavings,
-        investment_balance: newInv
+        invest_cash_balance: newInvestCash,
+        invest_stock_balance: newInvestStock
       });
       
       setExpense("");
@@ -276,324 +325,323 @@ export default function Home() {
     } catch (e) { alert("保存に失敗しました"); }
   };
 
-  // --- 削除処理 ---
-  const deleteItem = async (index: number) => {
-    if (!confirm("この記録を消去しますか？")) return;
-    try {
-      const item = history[index];
-      let newSavings = savings;
-      let newInv = investmentBalance;
-
-      if (item.category === "特別支出") newSavings += item.amount;
-      if (item.category === "投資・貯金") newInv += item.amount;
-      if (item.category === "臨時収入") newInv -= item.amount;
-
-      const newHistory = history.filter((_, i) => i !== index);
-      await updateDoc(doc(db, "kakeibo", "user_data"), { 
-        history: newHistory,
-        savings_balance: newSavings,
-        investment_balance: newInv
-      });
-      loadData();
-    } catch (e) { alert("削除失敗"); }
-  };
-
-  // --- 編集処理 ---
-  const editItem = async (index: number) => {
-    const item = history[index];
-    const newAmountStr = prompt("新しい金額を入力してください", item.amount.toString());
-    if (newAmountStr === null || isNaN(Number(newAmountStr))) return;
-    const newAmount = Number(newAmountStr);
-
-    const newCat = prompt(`新しいカテゴリーを入力してください\n(${categories.join(", ")})`, item.category);
-    if (newCat === null || !categories.includes(newCat)) return;
-
-    const newMemo = prompt("メモを修正してください", item.memo || "");
-    if (newMemo === null) return;
-
-    try {
-      const newHistory = [...history];
-      let newSavings = savings;
-      let newInv = investmentBalance;
-
-      // 古いデータの還元
-      if (item.category === "特別支出") newSavings += item.amount;
-      if (item.category === "投資・貯金") newInv += item.amount;
-      if (item.category === "臨時収入") newInv -= item.amount;
-
-      // 新しいデータの適用
-      if (newCat === "特別支出") newSavings -= newAmount;
-      if (newCat === "投資・貯金") newInv -= newAmount;
-      if (newCat === "臨時収入") newInv += newAmount;
-
-      newHistory[index] = { ...item, amount: newAmount, category: newCat, memo: newMemo };
-
-      await updateDoc(doc(db, "kakeibo", "user_data"), { 
-        history: newHistory,
-        savings_balance: newSavings,
-        investment_balance: newInv
-      });
-      loadData();
-    } catch (e) { alert("修正失敗"); }
-  };
-
-  // --- 設定更新 ---
+  // --- 設定更新 & リセット & NISA ---
   const handleUpdateSettings = async () => {
     try {
       const docRef = doc(db, "kakeibo", "user_data");
-      const confirmAdd = confirm(`設定を更新します。\nさらに、固定貯金額 ¥${monthlySavingTarget.toLocaleString()} を今すぐ反映（加算）させますか？`);
+      const confirmAdd = confirm(`設定を更新しますか？\n(残高リセット値も適用されます)`);
+      if (!confirmAdd) return;
       
       const newSettings = { 
-        dailyBudget, payday, monthlySavingTarget, monthlyInvestmentTarget, isCsvMode,
+        dailyBudget, payday, monthlySavingTarget, monthlyInvestmentTarget, isCsvMode, theme, nisaSettings,
         lastAccessedMonth: `${new Date().getFullYear()}-${new Date().getMonth()}` 
       };
       
-      const updatePayload: any = { settings: newSettings, subscriptions: subscriptions };
-      if (confirmAdd) {
-        updatePayload.savings_balance = savings + monthlySavingTarget;
-        updatePayload.investment_balance = investmentBalance + monthlyInvestmentTarget;
-      }
+      // 設定更新と同時に、リセット値を適用
+      await updateDoc(docRef, { 
+        settings: newSettings, 
+        subscriptions: subscriptions,
+        savings_balance: tempResetValues.special,
+        invest_cash_balance: tempResetValues.investCash,
+        invest_stock_balance: tempResetValues.investStock,
+      });
 
-      await updateDoc(docRef, updatePayload);
       setIsSettingMode(false);
       loadData();
-    } catch (e) { alert("設定の更新に失敗しました"); }
+    } catch (e) { alert("更新失敗"); }
   };
 
-  // --- サブスク追加・削除ロジック ---
-  const addSubscription = () => {
-    const name = prompt("サブスク名を入力 (例: Netflix)");
-    if (!name) return;
-    const amountStr = prompt("金額を入力");
-    if (!amountStr || isNaN(Number(amountStr))) return;
-    const dayStr = prompt("毎月の支払日 (1-31)。空欄なら月変わり時に自動計上します。");
-    const category = prompt(`カテゴリーを選択\n(${categories.join(", ")})`, "その他");
-    
-    if (!categories.includes(category || "")) {
-        alert("正しいカテゴリーを入力してください");
-        return;
-    }
+  // --- ヘルパー関数 ---
+  const deleteItem = async (index: number) => {
+    if (!confirm("削除しますか？")) return;
+    const item = history[index];
+    // 削除時の巻き戻し処理は複雑になるため、簡易的にリロード推奨または計算
+    // ここでは厳密に逆算
+    let ns = savings, nic = investCash, nis = investStock;
+    if (item.category === "特別支出") ns += item.amount;
+    else if (item.category === "貯金") nic += item.amount;
+    else if (item.category === "投資") { nic += item.amount; nis -= item.amount; }
+    else if (item.category === "臨時収入") nic -= item.amount;
 
-    const newSub: Subscription = {
-        id: Date.now(),
-        name,
-        amount: Number(amountStr),
-        payDay: dayStr ? Number(dayStr) : "",
-        category: category || "その他",
-        lastPaidMonth: "" // 初回は未払い扱い
-    };
-    setSubscriptions([...subscriptions, newSub]);
+    const newH = history.filter((_, i) => i !== index);
+    await updateDoc(doc(db, "kakeibo", "user_data"), { history: newH, savings_balance: ns, invest_cash_balance: nic, invest_stock_balance: nis });
+    loadData();
   };
 
-  const deleteSubscription = (id: number) => {
-    if(confirm("このサブスク設定を削除しますか？")) {
-        setSubscriptions(subscriptions.filter(s => s.id !== id));
-    }
-  };
-
-  // --- CSV出力ロジック ---
   const downloadCSV = () => {
-    // 全履歴をマージ（アーカイブ + 今月の履歴）
-    let allData: Transaction[] = [...history];
-    Object.values(archives).forEach(monthHistory => {
-        allData = [...allData, ...monthHistory];
-    });
-
-    // 日付順にソート
+    let allData = [...history, ...Object.values(archives).flat()];
     allData.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-    // CSVヘッダー
-    let csvContent = "Date,Category,Amount,Memo\n";
-    allData.forEach(item => {
-        const d = new Date(item.date);
-        const dateStr = `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`;
-        // メモにカンマが含まれる場合の対策でダブルクォートで囲む
-        csvContent += `${dateStr},${item.category},${item.amount},"${item.memo || ''}"\n`;
-    });
-
-    const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csvContent], { type: "text/csv;charset=utf-8;" }); // BOM付きUTF-8
+    let csv = "Date,Category,Amount,Memo,Type\n";
+    allData.forEach(i => csv += `${new Date(i.date).toLocaleDateString()},${i.category},${i.amount},"${i.memo}",${i.type || 'expense'}\n`);
+    const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csv], { type: "text/csv" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = `kakeibo_export_${new Date().toISOString().split('T')[0]}.csv`;
+    link.download = `kakeibo_export.csv`;
     link.click();
   };
 
-
-  if (loading) return <div className="p-8 text-center text-gray-500 font-mono">Loading...</div>;
+  if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 text-gray-500 font-mono">Loading...</div>;
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 font-sans text-gray-900">
-      <div className="max-w-md mx-auto">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-300 font-sans text-gray-800 dark:text-gray-100 pb-10">
+      <div className="max-w-md mx-auto p-4">
+        
         {/* Header */}
-        <div className="flex justify-between items-center mb-4">
-          <h1 className="text-lg font-bold text-gray-700 font-mono italic">MY KAKEIBO</h1>
-          <button onClick={() => setIsSettingMode(!isSettingMode)} className="text-[10px] bg-white border border-gray-200 px-3 py-1 rounded-full text-gray-400 font-bold tracking-widest shadow-sm">
-            {isSettingMode ? "CLOSE" : "SETTINGS"}
+        <div className="flex justify-between items-center mb-6 pt-2">
+          <div>
+            <h1 className="text-xl font-bold tracking-tight dark:text-white">MY KAKEIBO</h1>
+            <p className="text-[10px] text-gray-400 dark:text-gray-500 font-mono tracking-widest uppercase">Financial Partner</p>
+          </div>
+          <button onClick={() => setIsSettingMode(!isSettingMode)} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-2 rounded-full shadow-sm hover:bg-gray-50 transition-all">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-600 dark:text-gray-300"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
           </button>
         </div>
 
         {isSettingMode ? (
-          // --- 設定画面 ---
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-blue-100 max-h-[80vh] overflow-y-auto">
-             <h2 className="font-bold mb-4 text-sm text-blue-800 uppercase text-center">Budget Settings</h2>
-             
-             {/* 基本予算設定 */}
-             <div className="space-y-4 mb-8">
-               <div>
-                 <label className="text-[10px] text-gray-400 font-bold ml-1">DAILY BUDGET</label>
-                 <input type="number" className="w-full p-3 bg-gray-50 rounded-xl mt-1 font-mono" value={dailyBudget} onChange={(e)=>setDailyBudget(Number(e.target.value))} />
-               </div>
-               <div>
-                 <label className="text-[10px] text-gray-400 font-bold ml-1">PAYDAY</label>
-                 <input type="number" className="w-full p-3 bg-gray-50 rounded-xl mt-1 font-mono" value={payday} onChange={(e)=>setPayday(Number(e.target.value))} />
-               </div>
-               <div>
-                 <label className="text-[10px] text-gray-400 font-bold ml-1">MONTHLY SAVINGS (SPECIAL)</label>
-                 <input type="number" className="w-full p-3 bg-gray-50 rounded-xl mt-1 font-mono" value={monthlySavingTarget} onChange={(e)=>setMonthlySavingTarget(Number(e.target.value))} />
-               </div>
-               <div>
-                 <label className="text-[10px] text-gray-400 font-bold ml-1">MONTHLY INVESTMENT (積立枠)</label>
-                 <input type="number" className="w-full p-3 bg-gray-50 rounded-xl mt-1 font-mono" value={monthlyInvestmentTarget} onChange={(e)=>setMonthlyInvestmentTarget(Number(e.target.value))} />
-               </div>
+          // --- 設定画面 (モーダル風) ---
+          <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-xl border border-gray-100 dark:border-gray-700 overflow-hidden animation-fade-in">
+             <div className="bg-blue-600 p-4 text-center">
+               <h2 className="text-white font-bold text-sm tracking-widest uppercase">Settings</h2>
              </div>
-
-             <hr className="border-gray-100 mb-6" />
-
-             {/* サブスク設定 */}
-             <div className="mb-8">
-                <div className="flex justify-between items-center mb-2">
-                    <label className="text-[10px] text-gray-400 font-bold ml-1 uppercase">Subscriptions</label>
-                    <button onClick={addSubscription} className="text-[10px] bg-blue-50 text-blue-600 px-2 py-1 rounded-full font-bold">＋ ADD</button>
-                </div>
-                <div className="space-y-2">
-                    {subscriptions.map(sub => (
-                        <div key={sub.id} className="bg-gray-50 p-3 rounded-xl flex justify-between items-center">
-                            <div>
-                                <p className="text-xs font-bold text-gray-700">{sub.name}</p>
-                                <p className="text-[9px] text-gray-400">
-                                    ¥{sub.amount.toLocaleString()} / {sub.payDay ? `Day ${sub.payDay}` : 'Monthly'} / {sub.category}
-                                </p>
-                            </div>
-                            <button onClick={()=>deleteSubscription(sub.id)} className="text-red-300 text-[9px] font-bold">DEL</button>
-                        </div>
-                    ))}
-                    {subscriptions.length === 0 && <p className="text-center text-[10px] text-gray-300">No subscriptions</p>}
-                </div>
-             </div>
-
-             {/* CSV設定 */}
-             <div className="mb-4">
-                 <div className="flex items-center justify-between bg-gray-50 p-3 rounded-xl">
-                    <label className="text-[10px] text-gray-500 font-bold">CSV EXPORT MODE</label>
-                    <input type="checkbox" checked={isCsvMode} onChange={(e) => setIsCsvMode(e.target.checked)} className="toggle" />
+             <div className="p-6 space-y-8 max-h-[75vh] overflow-y-auto">
+               
+               {/* 1. 基本設定 */}
+               <section>
+                 <h3 className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase mb-3 border-b border-blue-100 dark:border-blue-900 pb-1">基本予算設定</h3>
+                 <div className="grid grid-cols-2 gap-4">
+                   <div>
+                     <label className="text-[10px] text-gray-400 block mb-1">1日予算</label>
+                     <input type="number" className="w-full p-2 bg-gray-50 dark:bg-gray-700 rounded-lg text-sm" value={dailyBudget} onChange={(e)=>setDailyBudget(Number(e.target.value))} />
+                   </div>
+                   <div>
+                     <label className="text-[10px] text-gray-400 block mb-1">給料日</label>
+                     <input type="number" className="w-full p-2 bg-gray-50 dark:bg-gray-700 rounded-lg text-sm" value={payday} onChange={(e)=>setPayday(Number(e.target.value))} />
+                   </div>
+                   <div>
+                     <label className="text-[10px] text-gray-400 block mb-1">特別費積立(月)</label>
+                     <input type="number" className="w-full p-2 bg-gray-50 dark:bg-gray-700 rounded-lg text-sm" value={monthlySavingTarget} onChange={(e)=>setMonthlySavingTarget(Number(e.target.value))} />
+                   </div>
+                   <div>
+                     <label className="text-[10px] text-gray-400 block mb-1">投資・貯金積立(月)</label>
+                     <input type="number" className="w-full p-2 bg-gray-50 dark:bg-gray-700 rounded-lg text-sm" value={monthlyInvestmentTarget} onChange={(e)=>setMonthlyInvestmentTarget(Number(e.target.value))} />
+                   </div>
                  </div>
-                 {isCsvMode && (
-                     <button onClick={downloadCSV} className="w-full mt-2 bg-green-50 text-green-600 border border-green-200 p-2 rounded-xl text-xs font-bold">
-                         DOWNLOAD PAST DATA (.csv)
-                     </button>
-                 )}
-             </div>
+               </section>
 
-             <button onClick={handleUpdateSettings} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold text-sm shadow-lg mt-4">UPDATE & APPLY</button>
+               {/* 2. 残高リセット（修正） */}
+               <section>
+                 <h3 className="text-xs font-bold text-red-500 uppercase mb-3 border-b border-red-100 dark:border-red-900 pb-1">残高修正 (リセット)</h3>
+                 <p className="text-[10px] text-gray-400 mb-2">※現在の計算と実際の残高がズレている場合、ここで入力した値に強制変更されます。</p>
+                 <div className="space-y-3">
+                   <div className="flex items-center justify-between">
+                     <label className="text-xs font-bold text-gray-600 dark:text-gray-300">特別費 残高</label>
+                     <input type="number" className="w-32 p-2 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900 rounded-lg text-right font-mono text-sm" 
+                       value={tempResetValues.special} onChange={(e)=>setTempResetValues({...tempResetValues, special: Number(e.target.value)})} />
+                   </div>
+                   <div className="flex items-center justify-between">
+                     <label className="text-xs font-bold text-gray-600 dark:text-gray-300">貯金(現金) 残高</label>
+                     <input type="number" className="w-32 p-2 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900 rounded-lg text-right font-mono text-sm" 
+                       value={tempResetValues.investCash} onChange={(e)=>setTempResetValues({...tempResetValues, investCash: Number(e.target.value)})} />
+                   </div>
+                   <div className="flex items-center justify-between">
+                     <label className="text-xs font-bold text-gray-600 dark:text-gray-300">投資(資産) 残高</label>
+                     <input type="number" className="w-32 p-2 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900 rounded-lg text-right font-mono text-sm" 
+                       value={tempResetValues.investStock} onChange={(e)=>setTempResetValues({...tempResetValues, investStock: Number(e.target.value)})} />
+                   </div>
+                 </div>
+               </section>
+
+               {/* 3. NISA & Subscriptions */}
+               <section>
+                  <h3 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase mb-3 border-b border-indigo-100 dark:border-indigo-900 pb-1">自動積立・固定費</h3>
+                  
+                  {/* NISA */}
+                  <div className="bg-indigo-50 dark:bg-indigo-900/30 p-3 rounded-xl mb-4">
+                    <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-bold text-indigo-700 dark:text-indigo-300">NISA自動積立</span>
+                        <input type="checkbox" checked={nisaSettings.enabled} onChange={(e)=>setNisaSettings({...nisaSettings, enabled: e.target.checked})} className="toggle" />
+                    </div>
+                    {nisaSettings.enabled && (
+                        <div className="flex gap-2">
+                            <input type="number" placeholder="金額" className="flex-1 p-2 rounded text-xs" value={nisaSettings.amount} onChange={(e)=>setNisaSettings({...nisaSettings, amount: Number(e.target.value)})} />
+                            <input type="number" placeholder="日" className="w-16 p-2 rounded text-xs" value={nisaSettings.day} onChange={(e)=>setNisaSettings({...nisaSettings, day: Number(e.target.value)})} />
+                        </div>
+                    )}
+                    <p className="text-[9px] text-indigo-400 mt-1">※設定日に「貯金」から「投資」へ自動振替します。</p>
+                  </div>
+
+                  {/* サブスク */}
+                  <div className="mb-2">
+                      <div className="flex justify-between items-center mb-2">
+                          <label className="text-[10px] text-gray-400 font-bold uppercase">サブスクリプション</label>
+                          <button onClick={()=>{
+                              const n = prompt("名称"); if(!n)return;
+                              const a = prompt("金額"); if(!a)return;
+                              const d = prompt("支払日(1-31, 空欄で月替わり)"); 
+                              const c = prompt("カテゴリ", "その他");
+                              setSubscriptions([...subscriptions, {id: Date.now(), name: n, amount: Number(a), payDay: d?Number(d):"", category:c||"その他", lastPaidMonth:""}]);
+                          }} className="text-[10px] bg-indigo-100 text-indigo-600 px-2 py-1 rounded font-bold">追加</button>
+                      </div>
+                      <div className="space-y-1">
+                          {subscriptions.map(s => (
+                              <div key={s.id} className="flex justify-between text-xs p-2 bg-gray-50 dark:bg-gray-700 rounded">
+                                  <span>{s.name} (¥{s.amount})</span>
+                                  <button onClick={()=>setSubscriptions(subscriptions.filter(i=>i.id!==s.id))} className="text-red-400">削除</button>
+                              </div>
+                          ))}
+                      </div>
+                  </div>
+               </section>
+
+               {/* 4. 表示・その他 */}
+               <section>
+                   <h3 className="text-xs font-bold text-gray-500 uppercase mb-3 border-b border-gray-100 dark:border-gray-700 pb-1">表示設定</h3>
+                   <div className="flex gap-2 mb-4">
+                       {(['light', 'dark', 'system'] as ThemeOption[]).map(t => (
+                           <button key={t} onClick={()=>setTheme(t)} className={`flex-1 py-2 text-xs font-bold rounded-lg border ${theme===t ? 'bg-gray-800 text-white dark:bg-white dark:text-gray-900 border-transparent' : 'border-gray-200 dark:border-gray-600 text-gray-500'}`}>
+                               {t === 'light' ? 'ライト' : t === 'dark' ? 'ダーク' : '自動'}
+                           </button>
+                       ))}
+                   </div>
+                   <div className="flex items-center justify-between">
+                       <span className="text-xs text-gray-500">CSV出力機能</span>
+                       <input type="checkbox" checked={isCsvMode} onChange={(e)=>setIsCsvMode(e.target.checked)} />
+                   </div>
+                   {isCsvMode && <button onClick={downloadCSV} className="mt-2 text-xs text-green-600 underline">過去データのダウンロード</button>}
+               </section>
+
+               <button onClick={handleUpdateSettings} className="w-full bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-xl font-bold text-sm shadow-lg transition-transform active:scale-95">設定を保存して戻る</button>
+             </div>
           </div>
         ) : (
           // --- メイン画面 ---
-          <>
-            {/* 財布パネル */}
-            <div className="grid grid-cols-2 gap-2 mb-2">
-              <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100">
-                  <p className="text-[8px] font-bold text-gray-300 mb-1 uppercase">Daily Balance</p>
-                  <p className={`text-lg font-mono font-bold ${balance < 0 ? 'text-red-500' : 'text-blue-600'}`}>¥{balance.toLocaleString()}</p>
-              </div>
-              <div className="bg-gradient-to-br from-pink-50 to-white p-3 rounded-2xl shadow-sm border border-pink-100">
-                  <p className="text-[8px] font-bold text-pink-300 mb-1 uppercase">Special Savings</p>
-                  <p className="text-lg font-mono font-bold text-pink-500">¥{savings.toLocaleString()}</p>
-              </div>
-            </div>
+          <div className="space-y-6 animate-fade-in-up">
             
-            {/* 投資・貯金パネル */}
-            <div className="bg-gradient-to-r from-indigo-500 to-purple-600 p-4 rounded-2xl shadow-md mb-4 text-white">
-                <div className="flex justify-between items-center">
-                  <p className="text-[10px] font-bold uppercase tracking-widest opacity-80">Investment & Savings</p>
-                  <span className="text-[8px] bg-white/20 px-2 py-0.5 rounded">Carry-over</span>
-                </div>
-                <p className={`text-2xl font-mono font-bold mt-1 ${investmentBalance < 0 ? 'text-red-200' : 'text-white'}`}>
-                    ¥{investmentBalance.toLocaleString()}
-                </p>
+            {/* 1. ダッシュボード (カード群) */}
+            <div className="grid grid-cols-2 gap-3">
+              {/* 生活費 */}
+              <div className="bg-white dark:bg-gray-800 p-4 rounded-3xl shadow-sm border border-blue-50 dark:border-gray-700 relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 w-16 h-16 bg-blue-50 dark:bg-blue-900/20 rounded-bl-full -mr-4 -mt-4 transition-transform group-hover:scale-110"></div>
+                  <p className="text-[10px] font-bold text-blue-400 dark:text-blue-300 mb-1 uppercase tracking-wider relative z-10">生活費残高</p>
+                  <p className={`text-2xl font-mono font-bold relative z-10 ${balance < 0 ? 'text-red-500' : 'text-gray-800 dark:text-white'}`}>¥{balance.toLocaleString()}</p>
+              </div>
+              
+              {/* 特別費 */}
+              <div className="bg-white dark:bg-gray-800 p-4 rounded-3xl shadow-sm border border-pink-50 dark:border-gray-700 relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 w-16 h-16 bg-pink-50 dark:bg-pink-900/20 rounded-bl-full -mr-4 -mt-4 transition-transform group-hover:scale-110"></div>
+                  <p className="text-[10px] font-bold text-pink-400 dark:text-pink-300 mb-1 uppercase tracking-wider relative z-10">特別費プール</p>
+                  <p className="text-2xl font-mono font-bold text-gray-800 dark:text-white relative z-10">¥{savings.toLocaleString()}</p>
+              </div>
             </div>
 
-            {/* 入力エリア */}
-            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 mb-4">
-              <div className="flex flex-wrap gap-1.5 mb-4">
+            {/* 投資・貯金 (分割表示) */}
+            <div className="bg-gradient-to-r from-indigo-600 to-violet-600 p-5 rounded-3xl shadow-lg text-white relative overflow-hidden">
+                <div className="absolute opacity-10 top-[-20px] left-[-20px] w-32 h-32 bg-white rounded-full blur-2xl"></div>
+                <div className="relative z-10">
+                    <div className="flex items-center justify-between mb-3 opacity-90">
+                        <p className="text-[10px] font-bold uppercase tracking-widest">Investment & Savings</p>
+                        <span className="text-[9px] bg-white/20 px-2 py-0.5 rounded backdrop-blur-sm">Total: ¥{(investCash + investStock).toLocaleString()}</span>
+                    </div>
+                    <div className="flex divide-x divide-white/20">
+                        <div className="pr-4 flex-1">
+                            <p className="text-[9px] opacity-70 mb-0.5">現金 (貯金)</p>
+                            <p className="text-xl font-mono font-bold">¥{investCash.toLocaleString()}</p>
+                        </div>
+                        <div className="pl-4 flex-1">
+                            <p className="text-[9px] opacity-70 mb-0.5">投資 (資産)</p>
+                            <p className="text-xl font-mono font-bold">¥{investStock.toLocaleString()}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* 2. 入力エリア (Glassmorphism inspired) */}
+            <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-lg p-5 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700">
+              <div className="flex flex-wrap gap-2 mb-4 justify-center">
                 {categories.map(cat => (
                   <button key={cat} onClick={() => setCategory(cat)}
-                    className={`px-2.5 py-1.5 rounded-lg text-[9px] font-bold transition-all ${
+                    className={`px-3 py-1.5 rounded-full text-[10px] font-bold transition-all ${
                       category === cat 
-                        ? (cat === '投資・貯金' || cat === '臨時収入' ? 'bg-indigo-600 text-white shadow-md' : cat === '特別支出' ? 'bg-pink-500 text-white shadow-md' : 'bg-blue-600 text-white shadow-md') 
-                        : 'bg-gray-50 text-gray-400'
+                        ? (['投資','貯金','臨時収入'].includes(cat) ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200 dark:shadow-none' : cat === '特別支出' ? 'bg-pink-500 text-white shadow-md shadow-pink-200 dark:shadow-none' : 'bg-blue-600 text-white shadow-md shadow-blue-200 dark:shadow-none') 
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
                     }`}>
                     {cat}
                   </button>
                 ))}
               </div>
+
               <div className="space-y-3">
                 <div className="flex gap-2">
-                  <input type="number" inputMode="numeric" placeholder="0" 
-                    className="w-32 p-4 bg-gray-50 rounded-xl text-2xl font-mono outline-none focus:bg-white focus:ring-2 focus:ring-blue-100 transition-all text-center"
-                    value={expense} onChange={(e) => setExpense(e.target.value)} />
+                   <div className="relative w-36">
+                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs font-bold">¥</span>
+                       <input type="number" inputMode="numeric" placeholder="0" 
+                        className="w-full pl-6 pr-3 py-4 bg-gray-50 dark:bg-gray-900 rounded-2xl text-xl font-mono font-bold outline-none focus:ring-2 focus:ring-blue-500 transition-all text-center dark:text-white"
+                        value={expense} onChange={(e) => setExpense(e.target.value)} />
+                   </div>
                   
                   <div className="flex-1 flex flex-col gap-2">
-                     {/* 日付選択 */}
                      <input type="date" 
-                        className="w-full p-2 bg-gray-50 rounded-lg text-xs font-mono text-gray-500 outline-none"
+                        className="w-full p-2 bg-gray-50 dark:bg-gray-900 rounded-lg text-[10px] font-mono text-gray-500 dark:text-gray-400 outline-none text-center"
                         value={inputDate} onChange={(e) => setInputDate(e.target.value)}
                      />
-                     <button onClick={handlePayment} className={`h-full text-white rounded-xl font-bold text-lg shadow-lg active:scale-95 transition-all uppercase tracking-widest ${category === '投資・貯金' || category === '臨時収入' ? 'bg-indigo-600' : category === '特別支出' ? 'bg-pink-500' : 'bg-blue-600'}`}>
-                        {category === '臨時収入' ? 'Add' : 'Entry'}
+                     <button onClick={handlePayment} className={`h-full text-white rounded-xl font-bold text-sm shadow-lg active:scale-95 transition-all uppercase tracking-widest ${['投資','貯金','臨時収入'].includes(category) ? 'bg-indigo-600' : category === '特別支出' ? 'bg-pink-500' : 'bg-blue-600'}`}>
+                        決定
                      </button>
                   </div>
                 </div>
-                <input type="text" placeholder="メモ（品目、銘柄など）"
-                  className="w-full p-3 bg-gray-50 rounded-xl text-xs outline-none focus:bg-white"
+                <input type="text" placeholder="メモを入力..."
+                  className="w-full p-3 bg-gray-50 dark:bg-gray-900 rounded-xl text-xs outline-none focus:bg-white dark:focus:bg-gray-700 transition-colors dark:text-white"
                   value={memo} onChange={(e) => setMemo(e.target.value)} />
               </div>
             </div>
 
-            {/* 履歴エリア */}
-            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 mb-4">
-              <p className="text-[10px] font-bold text-gray-400 mb-3 uppercase tracking-widest">Recent History</p>
-              <div className="space-y-3">
+            {/* 3. 履歴リスト */}
+            <div className="bg-white dark:bg-gray-800 p-5 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700">
+              <h3 className="text-[10px] font-bold text-gray-400 dark:text-gray-500 mb-4 uppercase tracking-widest">直近の履歴</h3>
+              <div className="space-y-4">
                 {history.slice(0, 5).map((item, index) => (
-                  <div key={index} className="flex items-start justify-between border-b border-gray-50 pb-2">
+                  <div key={index} className="flex items-start justify-between border-b border-gray-50 dark:border-gray-700 pb-3 last:border-0">
                     <div className="flex-1">
-                      <div className="flex items-center">
-                        <span className={`text-[7px] font-bold px-1.5 py-0.5 rounded mr-2 uppercase ${item.category === '投資・貯金' || item.category === '臨時収入' ? 'bg-indigo-100 text-indigo-600' : item.category === '特別支出' ? 'bg-pink-100 text-pink-500' : 'bg-gray-100 text-gray-500'}`}>{item.category}</span>
-                        <span className="text-[9px] text-gray-400 mr-2 font-mono">{new Date(item.date).toLocaleDateString()}</span>
-                        <span className={`text-sm font-mono font-bold ${item.category === '臨時収入' ? 'text-green-600' : ''}`}>
-                          {item.category === '臨時収入' ? '+' : ''}¥{item.amount.toLocaleString()}
-                        </span>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`text-[8px] font-bold px-2 py-0.5 rounded-full uppercase ${['投資','貯金','臨時収入'].includes(item.category) ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-300' : item.category === '特別支出' ? 'bg-pink-100 text-pink-600 dark:bg-pink-900 dark:text-pink-300' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300'}`}>{item.category}</span>
+                        <span className="text-[10px] text-gray-400 font-mono">{new Date(item.date).toLocaleDateString()}</span>
                       </div>
-                      {item.memo && <p className="text-[9px] text-gray-400 ml-1 mt-0.5">{item.memo}</p>}
+                      <div className="flex items-baseline gap-2">
+                          <span className={`text-sm font-mono font-bold ${item.category === '臨時収入' ? 'text-green-500' : 'text-gray-700 dark:text-gray-200'}`}>
+                            {item.category === '臨時収入' ? '+' : ''}¥{item.amount.toLocaleString()}
+                          </span>
+                          {item.type === 'transfer' && <span className="text-[8px] text-indigo-400 bg-indigo-50 dark:bg-indigo-900/50 px-1 rounded">振替</span>}
+                      </div>
+                      {item.memo && <p className="text-[10px] text-gray-400 mt-0.5">{item.memo}</p>}
                     </div>
-                    <div className="flex gap-3">
-                      <button onClick={() => editItem(index)} className="text-blue-300 text-[9px] font-bold uppercase hover:text-blue-500">Edit</button>
-                      <button onClick={() => deleteItem(index)} className="text-red-300 text-[9px] font-bold uppercase hover:text-red-500">Del</button>
-                    </div>
+                    <button onClick={() => deleteItem(index)} className="text-gray-300 hover:text-red-400 transition-colors p-2">
+                        <span className="text-[10px] font-bold">×</span>
+                    </button>
                   </div>
                 ))}
+                {history.length === 0 && <p className="text-center text-xs text-gray-300 py-4">履歴はありません</p>}
               </div>
             </div>
 
-            {/* グラフエリア */}
+            {/* 4. グラフ */}
             {chartData && totalSpent > 0 && (
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                <p className="text-[10px] font-bold text-gray-400 mb-4 uppercase tracking-widest text-center">Distribution</p>
-                <div className="px-10">
-                  <Pie data={chartData} options={{ plugins: { legend: { position: 'bottom', labels: { boxWidth: 8, font: { size: 8 } } } } }} />
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700">
+                <h3 className="text-[10px] font-bold text-gray-400 dark:text-gray-500 mb-6 uppercase tracking-widest text-center">今月の内訳</h3>
+                <div className="px-12 pb-4">
+                  <Pie data={chartData} options={{ 
+                      plugins: { 
+                          legend: { 
+                              position: 'bottom', 
+                              labels: { boxWidth: 8, font: { size: 9 }, color: theme === 'dark' ? '#9ca3af' : '#4b5563' } 
+                          } 
+                      },
+                      elements: { arc: { borderWidth: 0 } }
+                  }} />
                 </div>
               </div>
             )}
-          </>
+            
+          </div>
         )}
       </div>
     </div>
