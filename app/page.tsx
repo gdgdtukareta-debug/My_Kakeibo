@@ -69,6 +69,11 @@ export default function Home() {
   const [archives, setArchives] = useState<Archives>({});
   const [isCsvMode, setIsCsvMode] = useState(false);
   
+  // --- 編集モード用 State ---
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editIndex, setEditIndex] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState({ amount: 0, category: "", memo: "", date: "" });
+
   // --- テーマ & リセット用 ---
   const [theme, setTheme] = useState<ThemeOption>('system');
   const [tempResetValues, setTempResetValues] = useState({ special: 0, investCash: 0, investStock: 0 });
@@ -396,6 +401,7 @@ export default function Home() {
     } catch (e) { alert("更新失敗"); }
   };
 
+  // --- 削除処理 ---
   const deleteItem = async (index: number) => {
     if (!user) return;
     if (!confirm("削除しますか？")) return;
@@ -410,6 +416,77 @@ export default function Home() {
     await updateDoc(doc(db, "users", user.uid), { history: newH, savings_balance: ns, invest_cash_balance: nic, invest_stock_balance: nis });
     loadData();
   };
+
+  // --- 編集モード開始 ---
+  const startEdit = (index: number) => {
+    const item = history[index];
+    setEditIndex(index);
+    setEditForm({
+      amount: item.amount,
+      category: item.category,
+      memo: item.memo,
+      date: new Date(item.date).toISOString().split('T')[0] // YYYY-MM-DD
+    });
+    setIsEditModalOpen(true);
+  };
+
+  // --- 編集保存処理 ---
+  const handleUpdateTransaction = async () => {
+    if (editIndex === null || !user) return;
+    
+    try {
+      const docRef = doc(db, "users", user.uid);
+      
+      // 1. 旧データの影響を打ち消す（削除と同じロジック）
+      const oldItem = history[editIndex];
+      let ns = savings, nic = investCash, nis = investStock;
+      
+      if (oldItem.category === "特別支出") ns += oldItem.amount;
+      else if (oldItem.category === "貯金") nic += oldItem.amount;
+      else if (oldItem.category === "投資") { nic += oldItem.amount; nis -= oldItem.amount; }
+      else if (oldItem.category === "臨時収入") nic -= oldItem.amount;
+
+      // 2. 新データの影響を適用（追加と同じロジック）
+      const newAmount = Number(editForm.amount);
+      if (editForm.category === "特別支出") ns -= newAmount;
+      else if (editForm.category === "貯金") nic -= newAmount;
+      else if (editForm.category === "投資") { nic -= newAmount; nis += newAmount; }
+      else if (editForm.category === "臨時収入") nic += newAmount;
+
+      // 3. タイプ判定
+      let newType: 'expense' | 'income' | 'transfer' = 'expense';
+      if (editForm.category === "投資") newType = 'transfer';
+      else if (editForm.category === "臨時収入") newType = 'income';
+
+      // 4. 配列更新
+      const newHistory = [...history];
+      const updateDate = new Date(editForm.date);
+      const now = new Date();
+      updateDate.setHours(now.getHours(), now.getMinutes()); // 時刻は現在時刻で更新
+
+      newHistory[editIndex] = {
+        amount: newAmount,
+        category: editForm.category,
+        memo: editForm.memo,
+        date: updateDate.toISOString(),
+        type: newType
+      };
+
+      // 5. DB保存
+      await updateDoc(docRef, { 
+        history: newHistory, 
+        savings_balance: ns, 
+        invest_cash_balance: nic, 
+        invest_stock_balance: nis 
+      });
+
+      setIsEditModalOpen(false);
+      setEditIndex(null);
+      loadData();
+
+    } catch(e) { alert("更新に失敗しました"); }
+  };
+
 
   const downloadCSV = () => {
     let allData = [...history, ...Object.values(archives).flat()];
@@ -440,12 +517,12 @@ export default function Home() {
             Googleでログイン
           </button>
           
-          {/* このアプリについて (修正済み) */}
+          {/* このアプリについて */}
           <div className="text-left border-t border-gray-100 dark:border-gray-700 pt-6 mt-6">
             <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 mb-3 tracking-widest uppercase">ABOUT THIS APP</h3>
             <div className="bg-gray-50 dark:bg-gray-800/50 p-5 rounded-2xl text-xs text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 leading-relaxed">
               <p className="font-bold text-indigo-600 dark:text-indigo-400 mb-2 text-sm">
-                「3つの財布」管理術
+                富裕層も実践する「3つの財布」管理術
               </p>
               <p className="mb-3">
                 「支出の額は、収入の額に達するまで膨張する」というパーキンソンの法則を避けるため、お金を物理的に3つの財布（生活費・特別費・貯金と投資）に分けるアプリです。
@@ -464,7 +541,6 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-300 font-sans text-gray-800 dark:text-gray-100 pb-10">
-      {/* max-w-md から md:max-w-4xl に変更してPC対応 */}
       <div className="max-w-md md:max-w-4xl mx-auto p-4">
         
         {/* Header */}
@@ -480,6 +556,46 @@ export default function Home() {
             </button>
           </div>
         </div>
+
+        {/* 編集モーダル */}
+        {isEditModalOpen && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-full max-w-sm animation-fade-in border border-gray-100 dark:border-gray-700">
+               <h3 className="text-sm font-bold text-gray-700 dark:text-gray-200 mb-4 flex items-center gap-2">
+                 <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                 履歴の編集
+               </h3>
+               <div className="space-y-3">
+                 <div>
+                   <label className="text-[10px] text-gray-400 block mb-1">金額</label>
+                   <input type="number" className="w-full p-2 bg-gray-50 dark:bg-gray-700 rounded text-sm font-mono"
+                     value={editForm.amount} onChange={(e)=>setEditForm({...editForm, amount: Number(e.target.value)})} />
+                 </div>
+                 <div>
+                   <label className="text-[10px] text-gray-400 block mb-1">日付</label>
+                   <input type="date" className="w-full p-2 bg-gray-50 dark:bg-gray-700 rounded text-sm font-mono"
+                     value={editForm.date} onChange={(e)=>setEditForm({...editForm, date: e.target.value})} />
+                 </div>
+                 <div>
+                   <label className="text-[10px] text-gray-400 block mb-1">カテゴリ</label>
+                   <select className="w-full p-2 bg-gray-50 dark:bg-gray-700 rounded text-xs"
+                     value={editForm.category} onChange={(e)=>setEditForm({...editForm, category: e.target.value})}>
+                     {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                   </select>
+                 </div>
+                 <div>
+                   <label className="text-[10px] text-gray-400 block mb-1">メモ</label>
+                   <input type="text" className="w-full p-2 bg-gray-50 dark:bg-gray-700 rounded text-xs"
+                     value={editForm.memo} onChange={(e)=>setEditForm({...editForm, memo: e.target.value})} />
+                 </div>
+                 <div className="flex gap-2 mt-4 pt-2 border-t border-gray-100 dark:border-gray-700">
+                    <button onClick={()=>setIsEditModalOpen(false)} className="flex-1 py-2 text-xs font-bold text-gray-500 bg-gray-100 dark:bg-gray-700 dark:text-gray-300 rounded-lg">キャンセル</button>
+                    <button onClick={handleUpdateTransaction} className="flex-1 py-2 text-xs font-bold text-white bg-blue-600 rounded-lg shadow-lg">保存する</button>
+                 </div>
+               </div>
+            </div>
+          </div>
+        )}
 
         {isSettingMode ? (
           // --- 設定画面 ---
@@ -562,7 +678,6 @@ export default function Home() {
                   <p className="text-2xl font-mono font-bold text-gray-800 dark:text-white relative z-10">¥{savings.toLocaleString()}</p>
               </div>
 
-              {/* PCではこのカードも横並びに */}
               <div className="col-span-2 md:col-span-1 bg-gradient-to-r from-indigo-600 to-violet-600 p-5 rounded-3xl shadow-lg text-white relative overflow-hidden">
                   <div className="absolute opacity-10 top-[-20px] left-[-20px] w-32 h-32 bg-white rounded-full blur-2xl"></div>
                   <div className="relative z-10">
@@ -648,9 +763,15 @@ export default function Home() {
                               </div>
                               {item.memo && <p className="text-[10px] text-gray-400 mt-0.5">{item.memo}</p>}
                             </div>
-                            <button onClick={() => deleteItem(index)} className="text-gray-300 hover:text-red-400 transition-colors p-2">
-                                <span className="text-[10px] font-bold">×</span>
-                            </button>
+                            {/* 編集・削除ボタンエリア */}
+                            <div className="flex gap-2">
+                                <button onClick={() => startEdit(index)} className="text-gray-300 hover:text-blue-500 transition-colors p-2">
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                                </button>
+                                <button onClick={() => deleteItem(index)} className="text-gray-300 hover:text-red-400 transition-colors p-2">
+                                    <span className="text-[10px] font-bold">×</span>
+                                </button>
+                            </div>
                           </div>
                         ))}
                         {history.length === 0 && <p className="text-center text-xs text-gray-300 py-4">履歴はありません</p>}
@@ -658,7 +779,7 @@ export default function Home() {
                     </div>
                 </div>
 
-                {/* 右カラム: グラフ (PCでは常時表示に近い形) */}
+                {/* 右カラム: グラフ (PCでは常時表示) */}
                 <div>
                     {chartData && totalSpent > 0 && (
                       <div className="bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700 h-full flex flex-col justify-center">
