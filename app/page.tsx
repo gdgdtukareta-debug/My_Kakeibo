@@ -445,7 +445,7 @@ export default function Home() {
             <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 mb-3 tracking-widest uppercase">ABOUT THIS APP</h3>
             <div className="bg-gray-50 dark:bg-gray-800/50 p-5 rounded-2xl text-xs text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 leading-relaxed">
               <p className="font-bold text-indigo-600 dark:text-indigo-400 mb-2 text-sm">
-                富裕層も実践する「3つの財布」管理術
+                「3つの財布」管理術
               </p>
               <p className="mb-3">
                 「支出の額は、収入の額に達するまで膨張する」というパーキンソンの法則を避けるため、お金を物理的に3つの財布（生活費・特別費・貯金と投資）に分けるアプリです。
