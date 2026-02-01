@@ -1,7 +1,10 @@
 "use client";
 import React, { useState, useEffect } from 'react';
-import { db } from '../lib/firebase'; 
+// auth を追加でインポートしてください
+import { db, auth } from '../lib/firebase'; 
 import { doc, getDoc, updateDoc, setDoc } from "firebase/firestore";
+// Auth関連のインポート
+import { signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User } from "firebase/auth";
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
 import { Pie } from 'react-chartjs-2';
 
@@ -13,7 +16,7 @@ type Transaction = {
   category: string;
   memo: string;
   date: string; 
-  type?: 'expense' | 'income' | 'transfer'; // 収支の種類
+  type?: 'expense' | 'income' | 'transfer';
 };
 
 type Subscription = {
@@ -30,17 +33,21 @@ type ThemeOption = 'light' | 'dark' | 'system';
 type Archives = { [key: string]: Transaction[] };
 
 export default function Home() {
+  // --- Auth State ---
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
   // --- 基本設定 ---
   const [dailyBudget, setDailyBudget] = useState(1000);
   const [payday, setPayday] = useState(25);
   const [monthlySavingTarget, setMonthlySavingTarget] = useState(0); 
   const [monthlyInvestmentTarget, setMonthlyInvestmentTarget] = useState(0); 
   
-  // --- 資産 State (新構成) ---
-  const [balance, setBalance] = useState(0);            // 生活費残高
-  const [savings, setSavings] = useState(0);            // 特別費残高
-  const [investCash, setInvestCash] = useState(0);      // 投資用現金プール
-  const [investStock, setInvestStock] = useState(0);    // 投資運用額
+  // --- 資産 State ---
+  const [balance, setBalance] = useState(0);            
+  const [savings, setSavings] = useState(0);            
+  const [investCash, setInvestCash] = useState(0);      
+  const [investStock, setInvestStock] = useState(0);    
   const [totalSpent, setTotalSpent] = useState(0);
 
   // --- NISA & Subscriptions ---
@@ -52,7 +59,7 @@ export default function Home() {
   const [memo, setMemo] = useState(""); 
   const [category, setCategory] = useState("食費");
   const [inputDate, setInputDate] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // データ読み込み用
   const [isSettingMode, setIsSettingMode] = useState(false);
   const [chartData, setChartData] = useState<any>(null);
   const [history, setHistory] = useState<Transaction[]>([]);
@@ -63,13 +70,20 @@ export default function Home() {
   const [theme, setTheme] = useState<ThemeOption>('system');
   const [tempResetValues, setTempResetValues] = useState({ special: 0, investCash: 0, investStock: 0 });
 
-  // カテゴリ定義（日本語ベース）
   const categories = ["食費", "日用品", "趣味", "仕事", "その他", "特別支出", "投資", "貯金", "臨時収入"];
 
-  // --- 初期化 & テーマ適用 ---
+  // --- 初期化 & Auth監視 ---
   useEffect(() => {
     const today = new Date();
     setInputDate(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`);
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setAuthLoading(false);
+    });
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -82,10 +96,40 @@ export default function Home() {
     applyTheme(theme);
   }, [theme]);
 
+  // --- ログイン処理 ---
+  const handleLogin = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      console.error("Login Failed", error);
+      alert("ログインに失敗しました");
+    }
+  };
+
+  // --- ログアウト処理 ---
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      // Stateのリセット
+      setHistory([]);
+      setBalance(0);
+      setSavings(0);
+      setInvestCash(0);
+      setInvestStock(0);
+    } catch (error) {
+      console.error("Logout Failed", error);
+    }
+  };
+
   // --- データ読み込み & 自動処理 ---
   const loadData = async () => {
+    if (!user) return; // ユーザーがいない場合は何もしない
+    setLoading(true);
+
     try {
-      const docRef = doc(db, "kakeibo", "user_data");
+      // コレクションを "users" に変更し、ドキュメントIDを user.uid に設定
+      const docRef = doc(db, "users", user.uid);
       const docSnap = await getDoc(docRef);
       
       let currentBudget = 1000;
@@ -94,7 +138,7 @@ export default function Home() {
       let currentMonthlyInvestment = 0;
       let currentSavings = 0;
       let currentInvestCash = 0;
-      let currentInvestStock = 0; // 新設
+      let currentInvestStock = 0; 
       let rawHistory: Transaction[] = [];
       let currentArchives: Archives = {};
       let currentSubs: Subscription[] = [];
@@ -120,7 +164,6 @@ export default function Home() {
         setNisaSettings(currentNisa);
 
         currentSavings = data.savings_balance || 0;
-        // 旧データ互換: investment_balance があれば Cash に割り当て
         currentInvestCash = data.invest_cash_balance ?? (data.investment_balance || 0);
         currentInvestStock = data.invest_stock_balance || 0;
         
@@ -128,6 +171,7 @@ export default function Home() {
         currentArchives = data.archives || {};
         currentSubs = data.subscriptions || [];
       } else {
+        // 新規ユーザー用の初期データ作成
         await setDoc(docRef, { savings_balance: 0, invest_cash_balance: 0, invest_stock_balance: 0, history: [], settings: {}, archives: [], subscriptions: [] });
       }
 
@@ -145,11 +189,9 @@ export default function Home() {
         
         const surplus = (diffDays * currentBudget) - prevRegularSpent;
         
-        // --- 修正箇所: 余り(surplus)の移動先変更 ---
         // 特別費へは「月次固定額」のみ繰越
         currentSavings += currentMonthlySaving;
-        
-        // 投資・貯金（現金プール）へ「月次固定額」 + 「生活費の余り」を繰越
+        // 投資・貯金へ「月次固定額」 + 「生活費の余り」を繰越
         currentInvestCash += currentMonthlyInvestment + (surplus > 0 ? surplus : 0);
 
         // アーカイブ保存
@@ -187,7 +229,7 @@ export default function Home() {
         return sub;
       });
 
-      // 3. NISA自動積立（現金 -> 投資 振替）
+      // 3. NISA自動積立
       if (currentNisa.enabled && currentNisa.lastProcessedMonth !== currentMonthKey && todayDate >= currentNisa.day) {
         dataModified = true;
         currentInvestCash -= currentNisa.amount;
@@ -198,7 +240,7 @@ export default function Home() {
           category: "投資",
           memo: "[Auto] NISA積立",
           date: now.toISOString(),
-          type: 'transfer' // 振替扱い
+          type: 'transfer' 
         });
         currentNisa.lastProcessedMonth = currentMonthKey;
         setNisaSettings(currentNisa);
@@ -225,7 +267,6 @@ export default function Home() {
       setSubscriptions(updatedSubs);
       setArchives(currentArchives);
       
-      // リセット用初期値
       setTempResetValues({ special: currentSavings, investCash: currentInvestCash, investStock: currentInvestStock });
 
       const sortedHistory = [...rawHistory].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -238,7 +279,6 @@ export default function Home() {
       let totalRegular = 0;
 
       rawHistory.forEach(item => {
-        // 振替(type=transfer)は支出合計に含めない、またはカテゴリ別のみ表示
         if (item.type !== 'transfer') {
             totalAll += item.amount;
             catTotals[item.category] = (catTotals[item.category] || 0) + item.amount;
@@ -271,33 +311,30 @@ export default function Home() {
     } catch (e) { console.error(e); } finally { setLoading(false); }
   };
 
-  useEffect(() => { loadData(); }, []);
+  // ユーザーが変更されたらデータを読み込む
+  useEffect(() => {
+    if (user) {
+      loadData();
+    }
+  }, [user]);
 
   // --- 支払い・入力処理 ---
   const handlePayment = async () => {
+    if (!user) return;
     const amount = Number(expense);
     if (!amount || amount <= 0) return;
     try {
-      const docRef = doc(db, "kakeibo", "user_data");
+      const docRef = doc(db, "users", user.uid); // user.uid を使用
       let newSavings = savings;
       let newInvestCash = investCash;
       let newInvestStock = investStock;
       let type: 'expense' | 'income' | 'transfer' = 'expense';
 
-      // カテゴリごとのロジック
       if (category === "特別支出") {
         newSavings -= amount;
       } else if (category === "貯金") {
-        // 「貯金」カテゴリでの入力＝「現金プール」からの支出、あるいは他への移動？
-        // ここではシンプルに「現金プールから使った」または「現金プールに手動で追加した(負の値)」等の解釈も可能だが
-        // Userの要望「臨時収入を追加」→ investCashが増える
-        // 今回の仕様：
-        // 臨時収入 -> investCash +
-        // 貯金 -> investCash - (支出) ?? or investCash + (入金)?
-        // 家計簿アプリの通例として、Entryボタンは「支出」が基本。
         newInvestCash -= amount;
       } else if (category === "投資") {
-        // 「投資」として記録＝現金プールから証券口座(Stock)へ移動したとみなす（振替）
         newInvestCash -= amount;
         newInvestStock += amount;
         type = 'transfer';
@@ -329,8 +366,9 @@ export default function Home() {
 
   // --- 設定更新 & リセット & NISA ---
   const handleUpdateSettings = async () => {
+    if (!user) return;
     try {
-      const docRef = doc(db, "kakeibo", "user_data");
+      const docRef = doc(db, "users", user.uid);
       const confirmAdd = confirm(`設定を更新しますか？\n(残高リセット値も適用されます)`);
       if (!confirmAdd) return;
       
@@ -339,7 +377,6 @@ export default function Home() {
         lastAccessedMonth: `${new Date().getFullYear()}-${new Date().getMonth()}` 
       };
       
-      // 設定更新と同時に、リセット値を適用
       await updateDoc(docRef, { 
         settings: newSettings, 
         subscriptions: subscriptions,
@@ -353,12 +390,11 @@ export default function Home() {
     } catch (e) { alert("更新失敗"); }
   };
 
-  // --- ヘルパー関数 ---
+  // --- 削除処理 ---
   const deleteItem = async (index: number) => {
+    if (!user) return;
     if (!confirm("削除しますか？")) return;
     const item = history[index];
-    // 削除時の巻き戻し処理は複雑になるため、簡易的にリロード推奨または計算
-    // ここでは厳密に逆算
     let ns = savings, nic = investCash, nis = investStock;
     if (item.category === "特別支出") ns += item.amount;
     else if (item.category === "貯金") nic += item.amount;
@@ -366,7 +402,7 @@ export default function Home() {
     else if (item.category === "臨時収入") nic -= item.amount;
 
     const newH = history.filter((_, i) => i !== index);
-    await updateDoc(doc(db, "kakeibo", "user_data"), { history: newH, savings_balance: ns, invest_cash_balance: nic, invest_stock_balance: nis });
+    await updateDoc(doc(db, "users", user.uid), { history: newH, savings_balance: ns, invest_cash_balance: nic, invest_stock_balance: nis });
     loadData();
   };
 
@@ -382,8 +418,40 @@ export default function Home() {
     link.click();
   };
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 text-gray-500 font-mono">Loading...</div>;
+  // --- ローディング画面 ---
+  if (authLoading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 text-gray-500 font-mono">Loading App...</div>;
 
+  // --- ログイン画面 ---
+  if (!user) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-white p-4">
+        <div className="bg-white dark:bg-gray-800 p-8 rounded-3xl shadow-xl max-w-sm w-full text-center border border-gray-100 dark:border-gray-700">
+          <div className="mb-6">
+            <h1 className="text-2xl font-bold tracking-tight mb-1">MY KAKEIBO</h1>
+            <p className="text-xs text-gray-400 font-mono tracking-widest uppercase">Financial Partner</p>
+          </div>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-8">ログインして家計簿データを同期しましょう。</p>
+          <button 
+            onClick={handleLogin}
+            className="w-full flex items-center justify-center gap-3 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 text-gray-700 dark:text-white py-3 px-4 rounded-xl transition-all shadow-sm font-bold text-sm"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24">
+              <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
+              <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
+              <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
+              <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
+            </svg>
+            Googleでログイン
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // --- データロード中 ---
+  if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 text-gray-500 font-mono">Loading Data...</div>;
+
+  // --- メインアプリ (ログイン済み) ---
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-300 font-sans text-gray-800 dark:text-gray-100 pb-10">
       <div className="max-w-md mx-auto p-4">
@@ -392,11 +460,18 @@ export default function Home() {
         <div className="flex justify-between items-center mb-6 pt-2">
           <div>
             <h1 className="text-xl font-bold tracking-tight dark:text-white">MY KAKEIBO</h1>
-            <p className="text-[10px] text-gray-400 dark:text-gray-500 font-mono tracking-widest uppercase">Financial Partner</p>
+            <p className="text-[10px] text-gray-400 dark:text-gray-500 font-mono tracking-widest uppercase">
+              Hi, {user.displayName?.split(" ")[0]}
+            </p>
           </div>
-          <button onClick={() => setIsSettingMode(!isSettingMode)} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-2 rounded-full shadow-sm hover:bg-gray-50 transition-all">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-600 dark:text-gray-300"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
-          </button>
+          <div className="flex gap-2">
+            <button onClick={handleLogout} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-full shadow-sm hover:bg-gray-50 transition-all text-xs font-bold text-gray-500">
+                LOGOUT
+            </button>
+            <button onClick={() => setIsSettingMode(!isSettingMode)} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-2 rounded-full shadow-sm hover:bg-gray-50 transition-all">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-600 dark:text-gray-300"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
         </div>
 
         {isSettingMode ? (
@@ -541,7 +616,6 @@ export default function Home() {
                 <div className="absolute opacity-10 top-[-20px] left-[-20px] w-32 h-32 bg-white rounded-full blur-2xl"></div>
                 <div className="relative z-10">
                     <div className="flex items-center justify-between mb-3 opacity-90">
-                        {/* --- 修正箇所: 表示名の変更 --- */}
                         <p className="text-[10px] font-bold uppercase tracking-widest">貯金と投資</p>
                         <span className="text-[9px] bg-white/20 px-2 py-0.5 rounded backdrop-blur-sm">Total: ¥{(investCash + investStock).toLocaleString()}</span>
                     </div>
