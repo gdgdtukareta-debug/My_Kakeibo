@@ -486,7 +486,7 @@ export default function Home() {
           <div className="text-left border-t border-gray-100 dark:border-gray-700 pt-6">
             <h3 className="text-xs font-bold text-gray-500 mb-2">このアプリについて</h3>
             <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-xl text-xs text-gray-400 min-h-[100px] border border-dashed border-gray-200 dark:border-gray-600 flex items-center justify-center">
-              ここに説明文が入ります...
+              富裕層も実践する「3つの財布」管理術<br /><br />「支出の額は、収入の額に達するまで膨張する」というパーキンソンの法則を避けるため、お金を物理的に3つの財布（生活費・特別費・投資）に分けるアプリです。<br /><br />収入を5:2:3の黄金比率で自動配分し、「あらかじめ投資をして、残ったお金で生活する」仕組みを確立。メンタルアカウンティング（心の会計）の罠に陥ることなく、無理なく資産形成が進む家計管理をサポートします。
             </div>
           </div>
         </div>
