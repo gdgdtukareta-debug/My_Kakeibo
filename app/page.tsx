@@ -1,9 +1,7 @@
 "use client";
 import React, { useState, useEffect } from 'react';
-// auth を追加でインポートしてください
 import { db, auth } from '../lib/firebase'; 
 import { doc, getDoc, updateDoc, setDoc } from "firebase/firestore";
-// Auth関連のインポート
 import { signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User } from "firebase/auth";
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
 import { Pie } from 'react-chartjs-2';
@@ -29,6 +27,7 @@ type Subscription = {
 };
 
 type ThemeOption = 'light' | 'dark' | 'system';
+type BudgetMode = 'daily' | 'monthly'; // 新追加: 予算モード
 
 type Archives = { [key: string]: Transaction[] };
 
@@ -37,8 +36,12 @@ export default function Home() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
 
-  // --- 基本設定 ---
-  const [dailyBudget, setDailyBudget] = useState(1000);
+  // --- 基本設定 State ---
+  const [totalMonthlyIncome, setTotalMonthlyIncome] = useState(0); // 1ヶ月の総予算（計算用）
+  const [livingBudgetMode, setLivingBudgetMode] = useState<BudgetMode>('daily'); // 生活費モード
+  const [dailyBudget, setDailyBudget] = useState(1000);   // 日割り予算
+  const [monthlyLivingBudget, setMonthlyLivingBudget] = useState(30000); // 月予算（新設）
+  
   const [payday, setPayday] = useState(25);
   const [monthlySavingTarget, setMonthlySavingTarget] = useState(0); 
   const [monthlyInvestmentTarget, setMonthlyInvestmentTarget] = useState(0); 
@@ -59,7 +62,7 @@ export default function Home() {
   const [memo, setMemo] = useState(""); 
   const [category, setCategory] = useState("食費");
   const [inputDate, setInputDate] = useState("");
-  const [loading, setLoading] = useState(false); // データ読み込み用
+  const [loading, setLoading] = useState(false);
   const [isSettingMode, setIsSettingMode] = useState(false);
   const [chartData, setChartData] = useState<any>(null);
   const [history, setHistory] = useState<Transaction[]>([]);
@@ -107,35 +110,55 @@ export default function Home() {
     }
   };
 
-  // --- ログアウト処理 ---
   const handleLogout = async () => {
     try {
       await signOut(auth);
-      // Stateのリセット
       setHistory([]);
       setBalance(0);
       setSavings(0);
       setInvestCash(0);
       setInvestStock(0);
-    } catch (error) {
-      console.error("Logout Failed", error);
+    } catch (error) { console.error(error); }
+  };
+
+  // --- 5:2:3 自動計算ロジック ---
+  const calculateBudgetDistribution = () => {
+    if (totalMonthlyIncome <= 0) {
+      alert("総予算を入力してください");
+      return;
     }
+    // 5:2:3 の割合
+    const living = Math.floor(totalMonthlyIncome * 0.5);
+    const special = Math.floor(totalMonthlyIncome * 0.2);
+    const invest = Math.floor(totalMonthlyIncome * 0.3);
+
+    // Stateに反映
+    if (livingBudgetMode === 'daily') {
+      setDailyBudget(Math.floor(living / 30)); // 単純に30日で割る
+    } else {
+      setMonthlyLivingBudget(living);
+    }
+    setMonthlySavingTarget(special);
+    setMonthlyInvestmentTarget(invest);
   };
 
   // --- データ読み込み & 自動処理 ---
   const loadData = async () => {
-    if (!user) return; // ユーザーがいない場合は何もしない
+    if (!user) return;
     setLoading(true);
 
     try {
-      // コレクションを "users" に変更し、ドキュメントIDを user.uid に設定
       const docRef = doc(db, "users", user.uid);
       const docSnap = await getDoc(docRef);
       
       let currentBudget = 1000;
+      let currentMonthlyLiving = 30000;
+      let currentMode: BudgetMode = 'daily';
+      
       let currentPayday = 25;
       let currentMonthlySaving = 0;
       let currentMonthlyInvestment = 0;
+      
       let currentSavings = 0;
       let currentInvestCash = 0;
       let currentInvestStock = 0; 
@@ -148,7 +171,11 @@ export default function Home() {
       if (docSnap.exists()) {
         const data = docSnap.data();
         const s = data.settings || {};
+        
         currentBudget = s.dailyBudget || 1000;
+        currentMonthlyLiving = s.monthlyLivingBudget || 30000;
+        currentMode = s.livingBudgetMode || 'daily';
+        
         currentPayday = s.payday || 25;
         currentMonthlySaving = s.monthlySavingTarget || 0;
         currentMonthlyInvestment = s.monthlyInvestmentTarget || 0;
@@ -157,7 +184,11 @@ export default function Home() {
         setIsCsvMode(s.isCsvMode || false);
         currentNisa = s.nisaSettings || currentNisa;
 
+        // State復元
         setDailyBudget(currentBudget);
+        setMonthlyLivingBudget(currentMonthlyLiving);
+        setLivingBudgetMode(currentMode);
+        
         setPayday(currentPayday);
         setMonthlySavingTarget(currentMonthlySaving);
         setMonthlyInvestmentTarget(currentMonthlyInvestment);
@@ -171,7 +202,6 @@ export default function Home() {
         currentArchives = data.archives || {};
         currentSubs = data.subscriptions || [];
       } else {
-        // 新規ユーザー用の初期データ作成
         await setDoc(docRef, { savings_balance: 0, invest_cash_balance: 0, invest_stock_balance: 0, history: [], settings: {}, archives: [], subscriptions: [] });
       }
 
@@ -181,20 +211,28 @@ export default function Home() {
       // 1. 月替わり判定
       let isMonthChanged = false;
       if (lastAccessedMonth !== "" && lastAccessedMonth !== currentMonthKey) {
-        const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, currentPayday);
-        const diffDays = Math.ceil(Math.abs(now.getTime() - lastMonthDate.getTime()) / (1000 * 60 * 60 * 24));
+        
+        // --- 余剰金計算 (モードによって異なる) ---
         const prevRegularSpent = rawHistory
           .filter(item => !["特別支出", "投資", "貯金", "臨時収入"].includes(item.category))
           .reduce((sum, item) => sum + item.amount, 0);
-        
-        const surplus = (diffDays * currentBudget) - prevRegularSpent;
-        
+
+        let surplus = 0;
+        if (currentMode === 'daily') {
+            // 日割りモード: 経過日数分 - 使用額
+            const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, currentPayday);
+            const diffDays = Math.ceil(Math.abs(now.getTime() - lastMonthDate.getTime()) / (1000 * 60 * 60 * 24));
+            surplus = (diffDays * currentBudget) - prevRegularSpent;
+        } else {
+            // 月予算モード: 月予算 - 使用額
+            surplus = currentMonthlyLiving - prevRegularSpent;
+        }
+
         // 特別費へは「月次固定額」のみ繰越
         currentSavings += currentMonthlySaving;
         // 投資・貯金へ「月次固定額」 + 「生活費の余り」を繰越
         currentInvestCash += currentMonthlyInvestment + (surplus > 0 ? surplus : 0);
 
-        // アーカイブ保存
         currentArchives[lastAccessedMonth] = rawHistory;
         const sortedKeys = Object.keys(currentArchives).sort();
         if (sortedKeys.length > 6) {
@@ -246,7 +284,6 @@ export default function Home() {
         setNisaSettings(currentNisa);
       }
 
-      // 保存
       if (isMonthChanged || dataModified || lastAccessedMonth === "") {
         await updateDoc(docRef, {
           savings_balance: currentSavings,
@@ -260,19 +297,17 @@ export default function Home() {
         });
       }
 
-      // State反映
       setSavings(currentSavings);
       setInvestCash(currentInvestCash);
       setInvestStock(currentInvestStock);
       setSubscriptions(updatedSubs);
       setArchives(currentArchives);
-      
       setTempResetValues({ special: currentSavings, investCash: currentInvestCash, investStock: currentInvestStock });
 
       const sortedHistory = [...rawHistory].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       setHistory(sortedHistory);
 
-      // 集計
+      // --- 残高計算 (モード別) ---
       const catTotals: { [key: string]: number } = {};
       categories.forEach(c => catTotals[c] = 0);
       let totalAll = 0;
@@ -287,14 +322,19 @@ export default function Home() {
             }
         }
       });
-
       setTotalSpent(totalAll);
       
-      // 給料日基準の残高計算
-      let startDate = new Date(now.getFullYear(), now.getMonth(), currentPayday);
-      if (now < startDate) startDate = new Date(now.getFullYear(), now.getMonth() - 1, currentPayday);
-      const daysFromStart = Math.floor(Math.abs(now.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-      const currentBalance = (daysFromStart * currentBudget) - totalRegular;
+      let currentBalance = 0;
+      if (currentMode === 'daily') {
+          // 毎日積み上げモード
+          let startDate = new Date(now.getFullYear(), now.getMonth(), currentPayday);
+          if (now < startDate) startDate = new Date(now.getFullYear(), now.getMonth() - 1, currentPayday);
+          const daysFromStart = Math.floor(Math.abs(now.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+          currentBalance = (daysFromStart * currentBudget) - totalRegular;
+      } else {
+          // 月予算モード (予算総額 - 使用額)
+          currentBalance = currentMonthlyLiving - totalRegular;
+      }
       setBalance(currentBalance);
 
       setChartData({
@@ -311,20 +351,17 @@ export default function Home() {
     } catch (e) { console.error(e); } finally { setLoading(false); }
   };
 
-  // ユーザーが変更されたらデータを読み込む
   useEffect(() => {
-    if (user) {
-      loadData();
-    }
+    if (user) { loadData(); }
   }, [user]);
 
-  // --- 支払い・入力処理 ---
+  // --- 支払い処理 ---
   const handlePayment = async () => {
     if (!user) return;
     const amount = Number(expense);
     if (!amount || amount <= 0) return;
     try {
-      const docRef = doc(db, "users", user.uid); // user.uid を使用
+      const docRef = doc(db, "users", user.uid);
       let newSavings = savings;
       let newInvestCash = investCash;
       let newInvestStock = investStock;
@@ -364,7 +401,7 @@ export default function Home() {
     } catch (e) { alert("保存に失敗しました"); }
   };
 
-  // --- 設定更新 & リセット & NISA ---
+  // --- 設定更新 ---
   const handleUpdateSettings = async () => {
     if (!user) return;
     try {
@@ -373,7 +410,9 @@ export default function Home() {
       if (!confirmAdd) return;
       
       const newSettings = { 
-        dailyBudget, payday, monthlySavingTarget, monthlyInvestmentTarget, isCsvMode, theme, nisaSettings,
+        dailyBudget, monthlyLivingBudget, livingBudgetMode, payday, 
+        monthlySavingTarget, monthlyInvestmentTarget, 
+        isCsvMode, theme, nisaSettings,
         lastAccessedMonth: `${new Date().getFullYear()}-${new Date().getMonth()}` 
       };
       
@@ -390,7 +429,6 @@ export default function Home() {
     } catch (e) { alert("更新失敗"); }
   };
 
-  // --- 削除処理 ---
   const deleteItem = async (index: number) => {
     if (!user) return;
     if (!confirm("削除しますか？")) return;
@@ -418,7 +456,6 @@ export default function Home() {
     link.click();
   };
 
-  // --- ローディング画面 ---
   if (authLoading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 text-gray-500 font-mono">Loading App...</div>;
 
   // --- ログイン画面 ---
@@ -427,13 +464,14 @@ export default function Home() {
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-white p-4">
         <div className="bg-white dark:bg-gray-800 p-8 rounded-3xl shadow-xl max-w-sm w-full text-center border border-gray-100 dark:border-gray-700">
           <div className="mb-6">
-            <h1 className="text-2xl font-bold tracking-tight mb-1">MY KAKEIBO</h1>
+            <h1 className="text-2xl font-bold tracking-tight mb-1">3つの財布</h1>
             <p className="text-xs text-gray-400 font-mono tracking-widest uppercase">Financial Partner</p>
           </div>
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-8">ログインして家計簿データを同期しましょう。</p>
+          
           <button 
             onClick={handleLogin}
-            className="w-full flex items-center justify-center gap-3 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 text-gray-700 dark:text-white py-3 px-4 rounded-xl transition-all shadow-sm font-bold text-sm"
+            className="w-full flex items-center justify-center gap-3 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 text-gray-700 dark:text-white py-3 px-4 rounded-xl transition-all shadow-sm font-bold text-sm mb-8"
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24">
               <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
@@ -443,15 +481,21 @@ export default function Home() {
             </svg>
             Googleでログイン
           </button>
+
+          {/* このアプリについて (プレースホルダー) */}
+          <div className="text-left border-t border-gray-100 dark:border-gray-700 pt-6">
+            <h3 className="text-xs font-bold text-gray-500 mb-2">このアプリについて</h3>
+            <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-xl text-xs text-gray-400 min-h-[100px] border border-dashed border-gray-200 dark:border-gray-600 flex items-center justify-center">
+              ここに説明文が入ります...
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
-  // --- データロード中 ---
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 text-gray-500 font-mono">Loading Data...</div>;
 
-  // --- メインアプリ (ログイン済み) ---
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-300 font-sans text-gray-800 dark:text-gray-100 pb-10">
       <div className="max-w-md mx-auto p-4">
@@ -459,7 +503,7 @@ export default function Home() {
         {/* Header */}
         <div className="flex justify-between items-center mb-6 pt-2">
           <div>
-            <h1 className="text-xl font-bold tracking-tight dark:text-white">MY KAKEIBO</h1>
+            <h1 className="text-xl font-bold tracking-tight dark:text-white">3つの財布</h1>
             <p className="text-[10px] text-gray-400 dark:text-gray-500 font-mono tracking-widest uppercase">
               Hi, {user.displayName?.split(" ")[0]}
             </p>
@@ -475,21 +519,52 @@ export default function Home() {
         </div>
 
         {isSettingMode ? (
-          // --- 設定画面 (モーダル風) ---
+          // --- 設定画面 ---
           <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-xl border border-gray-100 dark:border-gray-700 overflow-hidden animation-fade-in">
              <div className="bg-blue-600 p-4 text-center">
                <h2 className="text-white font-bold text-sm tracking-widest uppercase">Settings</h2>
              </div>
              <div className="p-6 space-y-8 max-h-[75vh] overflow-y-auto">
                
-               {/* 1. 基本設定 */}
+               {/* 1. 基本予算設定 */}
                <section>
                  <h3 className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase mb-3 border-b border-blue-100 dark:border-blue-900 pb-1">基本予算設定</h3>
+                 
+                 {/* 5:2:3 自動計算ツール */}
+                 <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-xl mb-4">
+                    <label className="text-[10px] text-blue-500 font-bold block mb-1">1ヶ月の総収入から自動振り分け (5:2:3)</label>
+                    <div className="flex gap-2">
+                        <input type="number" placeholder="例: 300000" className="flex-1 p-2 bg-white dark:bg-gray-700 rounded text-sm" 
+                            value={totalMonthlyIncome} onChange={(e)=>setTotalMonthlyIncome(Number(e.target.value))} />
+                        <button onClick={calculateBudgetDistribution} className="bg-blue-600 text-white text-xs font-bold px-3 rounded shadow-sm">
+                            反映
+                        </button>
+                    </div>
+                    <p className="text-[9px] text-blue-400 mt-1">※生活費(5割)、特別費(2割)、貯金投資(3割)を下記に入力します。</p>
+                 </div>
+
                  <div className="grid grid-cols-2 gap-4">
-                   <div>
-                     <label className="text-[10px] text-gray-400 block mb-1">1日予算</label>
-                     <input type="number" className="w-full p-2 bg-gray-50 dark:bg-gray-700 rounded-lg text-sm" value={dailyBudget} onChange={(e)=>setDailyBudget(Number(e.target.value))} />
+                   {/* モード切替 */}
+                   <div className="col-span-2 flex items-center justify-between bg-gray-50 dark:bg-gray-700 p-2 rounded-lg">
+                       <span className="text-[10px] font-bold text-gray-500 dark:text-gray-300">生活費予算モード</span>
+                       <div className="flex gap-1">
+                           <button onClick={()=>setLivingBudgetMode('daily')} className={`px-2 py-1 text-[10px] rounded ${livingBudgetMode==='daily' ? 'bg-blue-600 text-white' : 'text-gray-400'}`}>日割(積上)</button>
+                           <button onClick={()=>setLivingBudgetMode('monthly')} className={`px-2 py-1 text-[10px] rounded ${livingBudgetMode==='monthly' ? 'bg-blue-600 text-white' : 'text-gray-400'}`}>月額(減算)</button>
+                       </div>
                    </div>
+
+                   {livingBudgetMode === 'daily' ? (
+                       <div>
+                         <label className="text-[10px] text-gray-400 block mb-1">1日の生活費予算</label>
+                         <input type="number" className="w-full p-2 bg-gray-50 dark:bg-gray-700 rounded-lg text-sm" value={dailyBudget} onChange={(e)=>setDailyBudget(Number(e.target.value))} />
+                       </div>
+                   ) : (
+                       <div>
+                         <label className="text-[10px] text-gray-400 block mb-1">1ヶ月の生活費予算</label>
+                         <input type="number" className="w-full p-2 bg-gray-50 dark:bg-gray-700 rounded-lg text-sm" value={monthlyLivingBudget} onChange={(e)=>setMonthlyLivingBudget(Number(e.target.value))} />
+                       </div>
+                   )}
+
                    <div>
                      <label className="text-[10px] text-gray-400 block mb-1">給料日</label>
                      <input type="number" className="w-full p-2 bg-gray-50 dark:bg-gray-700 rounded-lg text-sm" value={payday} onChange={(e)=>setPayday(Number(e.target.value))} />
@@ -499,13 +574,13 @@ export default function Home() {
                      <input type="number" className="w-full p-2 bg-gray-50 dark:bg-gray-700 rounded-lg text-sm" value={monthlySavingTarget} onChange={(e)=>setMonthlySavingTarget(Number(e.target.value))} />
                    </div>
                    <div>
-                     <label className="text-[10px] text-gray-400 block mb-1">投資・貯金積立(月)</label>
+                     <label className="text-[10px] text-gray-400 block mb-1">貯金・投資積立(月)</label>
                      <input type="number" className="w-full p-2 bg-gray-50 dark:bg-gray-700 rounded-lg text-sm" value={monthlyInvestmentTarget} onChange={(e)=>setMonthlyInvestmentTarget(Number(e.target.value))} />
                    </div>
                  </div>
                </section>
 
-               {/* 2. 残高リセット（修正） */}
+               {/* 2. 残高リセット */}
                <section>
                  <h3 className="text-xs font-bold text-red-500 uppercase mb-3 border-b border-red-100 dark:border-red-900 pb-1">残高修正 (リセット)</h3>
                  <p className="text-[10px] text-gray-400 mb-2">※現在の計算と実際の残高がズレている場合、ここで入力した値に強制変更されます。</p>
@@ -531,8 +606,6 @@ export default function Home() {
                {/* 3. NISA & Subscriptions */}
                <section>
                   <h3 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase mb-3 border-b border-indigo-100 dark:border-indigo-900 pb-1">自動積立・固定費</h3>
-                  
-                  {/* NISA */}
                   <div className="bg-indigo-50 dark:bg-indigo-900/30 p-3 rounded-xl mb-4">
                     <div className="flex items-center justify-between mb-2">
                         <span className="text-xs font-bold text-indigo-700 dark:text-indigo-300">NISA自動積立</span>
@@ -546,8 +619,6 @@ export default function Home() {
                     )}
                     <p className="text-[9px] text-indigo-400 mt-1">※設定日に「貯金」から「投資」へ自動振替します。</p>
                   </div>
-
-                  {/* サブスク */}
                   <div className="mb-2">
                       <div className="flex justify-between items-center mb-2">
                           <label className="text-[10px] text-gray-400 font-bold uppercase">サブスクリプション</label>
@@ -594,16 +665,16 @@ export default function Home() {
           // --- メイン画面 ---
           <div className="space-y-6 animate-fade-in-up">
             
-            {/* 1. ダッシュボード (カード群) */}
+            {/* 1. ダッシュボード */}
             <div className="grid grid-cols-2 gap-3">
-              {/* 生活費 */}
               <div className="bg-white dark:bg-gray-800 p-4 rounded-3xl shadow-sm border border-blue-50 dark:border-gray-700 relative overflow-hidden group">
                   <div className="absolute top-0 right-0 w-16 h-16 bg-blue-50 dark:bg-blue-900/20 rounded-bl-full -mr-4 -mt-4 transition-transform group-hover:scale-110"></div>
                   <p className="text-[10px] font-bold text-blue-400 dark:text-blue-300 mb-1 uppercase tracking-wider relative z-10">生活費残高</p>
                   <p className={`text-2xl font-mono font-bold relative z-10 ${balance < 0 ? 'text-red-500' : 'text-gray-800 dark:text-white'}`}>¥{balance.toLocaleString()}</p>
+                  <p className="text-[8px] text-gray-400 dark:text-gray-500 mt-1 font-mono">
+                      {livingBudgetMode === 'daily' ? 'Daily Accumulation' : 'Monthly Budget'}
+                  </p>
               </div>
-              
-              {/* 特別費 */}
               <div className="bg-white dark:bg-gray-800 p-4 rounded-3xl shadow-sm border border-pink-50 dark:border-gray-700 relative overflow-hidden group">
                   <div className="absolute top-0 right-0 w-16 h-16 bg-pink-50 dark:bg-pink-900/20 rounded-bl-full -mr-4 -mt-4 transition-transform group-hover:scale-110"></div>
                   <p className="text-[10px] font-bold text-pink-400 dark:text-pink-300 mb-1 uppercase tracking-wider relative z-10">特別費プール</p>
@@ -611,7 +682,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* 投資・貯金 (分割表示) */}
             <div className="bg-gradient-to-r from-indigo-600 to-violet-600 p-5 rounded-3xl shadow-lg text-white relative overflow-hidden">
                 <div className="absolute opacity-10 top-[-20px] left-[-20px] w-32 h-32 bg-white rounded-full blur-2xl"></div>
                 <div className="relative z-10">
@@ -632,7 +702,7 @@ export default function Home() {
                 </div>
             </div>
 
-            {/* 2. 入力エリア (Glassmorphism inspired) */}
+            {/* 2. 入力エリア */}
             <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-lg p-5 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700">
               <div className="flex flex-wrap gap-2 mb-4 justify-center">
                 {categories.map(cat => (
