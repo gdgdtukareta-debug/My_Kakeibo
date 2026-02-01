@@ -37,10 +37,10 @@ export default function Home() {
   const [monthlyInvestmentTarget, setMonthlyInvestmentTarget] = useState(0); 
   
   // --- 資産 State (新構成) ---
-  const [balance, setBalance] = useState(0);           // 生活費残高
-  const [savings, setSavings] = useState(0);           // 特別費残高
-  const [investCash, setInvestCash] = useState(0);     // 投資用現金プール
-  const [investStock, setInvestStock] = useState(0);   // 投資運用額
+  const [balance, setBalance] = useState(0);            // 生活費残高
+  const [savings, setSavings] = useState(0);            // 特別費残高
+  const [investCash, setInvestCash] = useState(0);      // 投資用現金プール
+  const [investStock, setInvestStock] = useState(0);    // 投資運用額
   const [totalSpent, setTotalSpent] = useState(0);
 
   // --- NISA & Subscriptions ---
@@ -145,10 +145,12 @@ export default function Home() {
         
         const surplus = (diffDays * currentBudget) - prevRegularSpent;
         
-        // 特別費へ繰越
-        currentSavings += (surplus > 0 ? surplus : 0) + currentMonthlySaving;
-        // 投資・貯金（現金プール）へ定額積立
-        currentInvestCash += currentMonthlyInvestment;
+        // --- 修正箇所: 余り(surplus)の移動先変更 ---
+        // 特別費へは「月次固定額」のみ繰越
+        currentSavings += currentMonthlySaving;
+        
+        // 投資・貯金（現金プール）へ「月次固定額」 + 「生活費の余り」を繰越
+        currentInvestCash += currentMonthlyInvestment + (surplus > 0 ? surplus : 0);
 
         // アーカイブ保存
         currentArchives[lastAccessedMonth] = rawHistory;
@@ -539,7 +541,8 @@ export default function Home() {
                 <div className="absolute opacity-10 top-[-20px] left-[-20px] w-32 h-32 bg-white rounded-full blur-2xl"></div>
                 <div className="relative z-10">
                     <div className="flex items-center justify-between mb-3 opacity-90">
-                        <p className="text-[10px] font-bold uppercase tracking-widest">Investment & Savings</p>
+                        {/* --- 修正箇所: 表示名の変更 --- */}
+                        <p className="text-[10px] font-bold uppercase tracking-widest">貯金と投資</p>
                         <span className="text-[9px] bg-white/20 px-2 py-0.5 rounded backdrop-blur-sm">Total: ¥{(investCash + investStock).toLocaleString()}</span>
                     </div>
                     <div className="flex divide-x divide-white/20">
@@ -585,7 +588,7 @@ export default function Home() {
                         value={inputDate} onChange={(e) => setInputDate(e.target.value)}
                      />
                      <button onClick={handlePayment} className={`h-full text-white rounded-xl font-bold text-sm shadow-lg active:scale-95 transition-all uppercase tracking-widest ${['投資','貯金','臨時収入'].includes(category) ? 'bg-indigo-600' : category === '特別支出' ? 'bg-pink-500' : 'bg-blue-600'}`}>
-                        決定
+                       決定
                      </button>
                   </div>
                 </div>
