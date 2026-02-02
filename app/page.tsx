@@ -68,6 +68,7 @@ export default function Home() {
   const [history, setHistory] = useState<Transaction[]>([]);
   const [archives, setArchives] = useState<Archives>({});
   const [isCsvMode, setIsCsvMode] = useState(false);
+  const [showAllHistory, setShowAllHistory] = useState(false); // Read More用
   
   // --- 編集モード用 State ---
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -437,7 +438,7 @@ export default function Home() {
     try {
       const docRef = doc(db, "users", user.uid);
       
-      // 1. 旧データの影響を打ち消す（削除と同じロジック）
+      // 1. 旧データの影響を打ち消す
       const oldItem = history[editIndex];
       let ns = savings, nic = investCash, nis = investStock;
       
@@ -446,7 +447,7 @@ export default function Home() {
       else if (oldItem.category === "投資") { nic += oldItem.amount; nis -= oldItem.amount; }
       else if (oldItem.category === "臨時収入") nic -= oldItem.amount;
 
-      // 2. 新データの影響を適用（追加と同じロジック）
+      // 2. 新データの影響を適用
       const newAmount = Number(editForm.amount);
       if (editForm.category === "特別支出") ns -= newAmount;
       else if (editForm.category === "貯金") nic -= newAmount;
@@ -462,7 +463,7 @@ export default function Home() {
       const newHistory = [...history];
       const updateDate = new Date(editForm.date);
       const now = new Date();
-      updateDate.setHours(now.getHours(), now.getMinutes()); // 時刻は現在時刻で更新
+      updateDate.setHours(now.getHours(), now.getMinutes());
 
       newHistory[editIndex] = {
         amount: newAmount,
@@ -472,7 +473,6 @@ export default function Home() {
         type: newType
       };
 
-      // 5. DB保存
       await updateDoc(docRef, { 
         history: newHistory, 
         savings_balance: ns, 
@@ -499,6 +499,9 @@ export default function Home() {
     link.download = `kakeibo_export.csv`;
     link.click();
   };
+
+  // --- 表示する履歴の制御 ---
+  const displayHistory = showAllHistory ? history : history.slice(0, 5);
 
   if (authLoading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 text-gray-500 font-mono">Loading App...</div>;
 
@@ -748,34 +751,52 @@ export default function Home() {
                     <div className="bg-white dark:bg-gray-800 p-5 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700">
                       <h3 className="text-[10px] font-bold text-gray-400 dark:text-gray-500 mb-4 uppercase tracking-widest">直近の履歴</h3>
                       <div className="space-y-4">
-                        {history.slice(0, 5).map((item, index) => (
-                          <div key={index} className="flex items-start justify-between border-b border-gray-50 dark:border-gray-700 pb-3 last:border-0">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className={`text-[8px] font-bold px-2 py-0.5 rounded-full uppercase ${['投資','貯金','臨時収入'].includes(item.category) ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-300' : item.category === '特別支出' ? 'bg-pink-100 text-pink-600 dark:bg-pink-900 dark:text-pink-300' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300'}`}>{item.category}</span>
-                                <span className="text-[10px] text-gray-400 font-mono">{new Date(item.date).toLocaleDateString()}</span>
+                        {displayHistory.map((item, index) => {
+                          // オリジナルのインデックスを計算 (Read More時はそのまま、通常時はそのまま)
+                          // ただし、mapのindexは表示上のindexなので、削除/編集時は注意が必要。
+                          // showAllHistory ? index : index (sliceされているので0-4)
+                          // history配列に対する正しいインデックスが必要。
+                          // displayHistory自体がhistoryの参照またはコピーなので、要素自体は同じだが、
+                          // 削除時に使うindexは「history配列全体の中でのindex」であるべき。
+                          // 今回は history配列の先頭から表示しているので、indexはそのまま使える。
+                          return (
+                            <div key={index} className="flex items-start justify-between border-b border-gray-50 dark:border-gray-700 pb-3 last:border-0">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className={`text-[8px] font-bold px-2 py-0.5 rounded-full uppercase ${['投資','貯金','臨時収入'].includes(item.category) ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-300' : item.category === '特別支出' ? 'bg-pink-100 text-pink-600 dark:bg-pink-900 dark:text-pink-300' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300'}`}>{item.category}</span>
+                                  <span className="text-[10px] text-gray-400 font-mono">{new Date(item.date).toLocaleDateString()}</span>
+                                </div>
+                                <div className="flex items-baseline gap-2">
+                                    <span className={`text-sm font-mono font-bold ${item.category === '臨時収入' ? 'text-green-500' : 'text-gray-700 dark:text-gray-200'}`}>
+                                      {item.category === '臨時収入' ? '+' : ''}¥{item.amount.toLocaleString()}
+                                    </span>
+                                    {item.type === 'transfer' && <span className="text-[8px] text-indigo-400 bg-indigo-50 dark:bg-indigo-900/50 px-1 rounded">振替</span>}
+                                </div>
+                                {item.memo && <p className="text-[10px] text-gray-400 mt-0.5">{item.memo}</p>}
                               </div>
-                              <div className="flex items-baseline gap-2">
-                                  <span className={`text-sm font-mono font-bold ${item.category === '臨時収入' ? 'text-green-500' : 'text-gray-700 dark:text-gray-200'}`}>
-                                    {item.category === '臨時収入' ? '+' : ''}¥{item.amount.toLocaleString()}
-                                  </span>
-                                  {item.type === 'transfer' && <span className="text-[8px] text-indigo-400 bg-indigo-50 dark:bg-indigo-900/50 px-1 rounded">振替</span>}
+                              <div className="flex gap-2">
+                                  <button onClick={() => startEdit(index)} className="text-gray-300 hover:text-blue-500 transition-colors p-2">
+                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                                  </button>
+                                  <button onClick={() => deleteItem(index)} className="text-gray-300 hover:text-red-400 transition-colors p-2">
+                                      <span className="text-[10px] font-bold">×</span>
+                                  </button>
                               </div>
-                              {item.memo && <p className="text-[10px] text-gray-400 mt-0.5">{item.memo}</p>}
                             </div>
-                            {/* 編集・削除ボタンエリア */}
-                            <div className="flex gap-2">
-                                <button onClick={() => startEdit(index)} className="text-gray-300 hover:text-blue-500 transition-colors p-2">
-                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                                </button>
-                                <button onClick={() => deleteItem(index)} className="text-gray-300 hover:text-red-400 transition-colors p-2">
-                                    <span className="text-[10px] font-bold">×</span>
-                                </button>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                         {history.length === 0 && <p className="text-center text-xs text-gray-300 py-4">履歴はありません</p>}
                       </div>
+                      
+                      {/* Read More ボタン */}
+                      {history.length > 5 && (
+                        <button 
+                          onClick={() => setShowAllHistory(!showAllHistory)}
+                          className="w-full mt-4 py-2 text-xs font-bold text-blue-500 hover:bg-blue-50 dark:hover:bg-gray-700 rounded-lg transition-colors border border-dashed border-blue-200 dark:border-gray-600"
+                        >
+                          {showAllHistory ? "Close" : "Read More..."}
+                        </button>
+                      )}
                     </div>
                 </div>
 
