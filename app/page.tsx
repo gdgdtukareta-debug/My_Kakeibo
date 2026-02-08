@@ -31,6 +31,66 @@ type BudgetMode = 'daily' | 'monthly';
 
 type Archives = { [key: string]: Transaction[] };
 
+// --- 使い方ガイドコンポーネント (共通化) ---
+const HelpGuide = () => (
+  <div className="bg-gray-50 dark:bg-gray-800/50 p-5 rounded-2xl text-xs text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 leading-relaxed space-y-6">
+    
+    {/* コンセプト */}
+    <div>
+      <h4 className="font-bold text-indigo-600 dark:text-indigo-400 mb-2 flex items-center gap-2 text-sm">
+        <span className="text-lg">👛</span> 3つの財布とは？
+      </h4>
+      <p>
+        お金を「使う目的」に合わせて3つに分けて管理する方法です。
+      </p>
+      <ul className="mt-2 space-y-1 list-disc list-inside text-gray-500 dark:text-gray-400 pl-1">
+        <li><span className="font-bold text-blue-500">生活費</span>：食費や日用品など、日々消えていくお金。</li>
+        <li><span className="font-bold text-pink-500">特別費</span>：旅行や家電、冠婚葬祭など、人生を豊かにするお金。</li>
+        <li><span className="font-bold text-indigo-500">貯金・投資</span>：未来のために守り、増やすお金。</li>
+      </ul>
+    </div>
+
+    {/* ステップ1: 設定 */}
+    <div>
+      <h4 className="font-bold text-gray-700 dark:text-gray-200 mb-2 flex items-center gap-2">
+        <span className="bg-gray-200 dark:bg-gray-700 w-5 h-5 rounded-full flex items-center justify-center text-[10px]">1</span>
+        まずは予算を設定
+      </h4>
+      <p className="mb-1">
+        右上の設定ボタン(歯車)を開き、<span className="font-bold">「1ヶ月の総収入」</span>を入力して<span className="bg-blue-600 text-white px-1 py-0.5 rounded text-[10px]">反映</span>を押してください。
+      </p>
+      <p className="text-[10px] text-gray-400">
+        ※自動的に黄金比率（5:2:3）で各財布に予算が振り分けられます。
+      </p>
+    </div>
+
+    {/* ステップ2: 入力 */}
+    <div>
+      <h4 className="font-bold text-gray-700 dark:text-gray-200 mb-2 flex items-center gap-2">
+        <span className="bg-gray-200 dark:bg-gray-700 w-5 h-5 rounded-full flex items-center justify-center text-[10px]">2</span>
+        使ったお金を入力
+      </h4>
+      <p>
+        <span className="font-bold">「カテゴリ」</span>を選んで、金額を入力して<span className="bg-blue-600 text-white px-1 py-0.5 rounded text-[10px]">決定</span>を押すだけ。
+      </p>
+      <p className="mt-1 text-[10px] text-gray-400">
+        選んだカテゴリに合わせて、自動的に正しい財布（生活費や特別費）から残高が引かれます。
+      </p>
+    </div>
+
+    {/* ステップ3: 修正 */}
+    <div>
+      <h4 className="font-bold text-gray-700 dark:text-gray-200 mb-2 flex items-center gap-2">
+        <span className="bg-gray-200 dark:bg-gray-700 w-5 h-5 rounded-full flex items-center justify-center text-[10px]">3</span>
+        間違えたときは？
+      </h4>
+      <p>
+        履歴リストにある<span className="font-bold">「鉛筆マーク✏️」</span>で修正、<span className="font-bold">「×マーク」</span>で削除ができます。残高も自動で元に戻ります。
+      </p>
+    </div>
+  </div>
+);
+
 export default function Home() {
   // --- Auth State ---
   const [user, setUser] = useState<User | null>(null);
@@ -520,20 +580,10 @@ export default function Home() {
             Googleでログイン
           </button>
           
-          {/* このアプリについて */}
+          {/* ログイン画面のガイド */}
           <div className="text-left border-t border-gray-100 dark:border-gray-700 pt-6 mt-6">
-            <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 mb-3 tracking-widest uppercase">ABOUT THIS APP</h3>
-            <div className="bg-gray-50 dark:bg-gray-800/50 p-5 rounded-2xl text-xs text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 leading-relaxed">
-              <p className="font-bold text-indigo-600 dark:text-indigo-400 mb-2 text-sm">
-                富裕層も実践する「3つの財布」管理術
-              </p>
-              <p className="mb-3">
-                「支出の額は、収入の額に達するまで膨張する」というパーキンソンの法則を避けるため、お金を物理的に3つの財布（生活費・特別費・貯金と投資）に分けるアプリです。
-              </p>
-              <p>
-                収入を<span className="font-bold text-indigo-500">5:2:3の黄金比率</span>で自動配分し、「あらかじめ投資をして、残ったお金で生活する」仕組みを確立。メンタルアカウンティング（心の会計）の罠に陥ることなく、無理なく資産形成が進む家計管理をサポートします。
-              </p>
-            </div>
+            <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 mb-3 tracking-widest uppercase">First Time Guide</h3>
+            <HelpGuide />
           </div>
         </div>
       </div>
@@ -659,6 +709,13 @@ export default function Home() {
                    <div className="flex items-center justify-between"><span className="text-xs text-gray-500">CSV出力機能</span><input type="checkbox" checked={isCsvMode} onChange={(e)=>setIsCsvMode(e.target.checked)} /></div>
                    {isCsvMode && <button onClick={downloadCSV} className="mt-2 text-xs text-green-600 underline">過去データのダウンロード</button>}
                </section>
+               
+               {/* 設定画面内のヘルプガイド (新規追加) */}
+               <section>
+                 <h3 className="text-xs font-bold text-gray-500 uppercase mb-3 border-b border-gray-100 dark:border-gray-700 pb-1">使い方がわからないときは？</h3>
+                 <HelpGuide />
+               </section>
+
                <button onClick={handleUpdateSettings} className="w-full bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-xl font-bold text-sm shadow-lg transition-transform active:scale-95">設定を保存して戻る</button>
              </div>
           </div>
@@ -752,13 +809,6 @@ export default function Home() {
                       <h3 className="text-[10px] font-bold text-gray-400 dark:text-gray-500 mb-4 uppercase tracking-widest">直近の履歴</h3>
                       <div className="space-y-4">
                         {displayHistory.map((item, index) => {
-                          // オリジナルのインデックスを計算 (Read More時はそのまま、通常時はそのまま)
-                          // ただし、mapのindexは表示上のindexなので、削除/編集時は注意が必要。
-                          // showAllHistory ? index : index (sliceされているので0-4)
-                          // history配列に対する正しいインデックスが必要。
-                          // displayHistory自体がhistoryの参照またはコピーなので、要素自体は同じだが、
-                          // 削除時に使うindexは「history配列全体の中でのindex」であるべき。
-                          // 今回は history配列の先頭から表示しているので、indexはそのまま使える。
                           return (
                             <div key={index} className="flex items-start justify-between border-b border-gray-50 dark:border-gray-700 pb-3 last:border-0">
                               <div className="flex-1">
