@@ -128,12 +128,13 @@ export default function Home() {
   const [history, setHistory] = useState<Transaction[]>([]);
   const [archives, setArchives] = useState<Archives>({});
   const [isCsvMode, setIsCsvMode] = useState(false);
-  const [showAllHistory, setShowAllHistory] = useState(false); // Read More用
+  const [showAllHistory, setShowAllHistory] = useState(false); 
   
-  // --- 編集モード用 State ---
+  // --- モーダル用 State ---
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editIndex, setEditIndex] = useState<number | null>(null);
   const [editForm, setEditForm] = useState({ amount: 0, category: "", memo: "", date: "" });
+  const [isHelpModalOpen, setIsHelpModalOpen] = useState(false); // ヘルプガイド用
 
   // --- テーマ & リセット用 ---
   const [theme, setTheme] = useState<ThemeOption>('system');
@@ -604,11 +605,32 @@ export default function Home() {
           </div>
           <div className="flex gap-2">
             <button onClick={handleLogout} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-full shadow-sm hover:bg-gray-50 transition-all text-xs font-bold text-gray-500">LOGOUT</button>
+            {/* 使い方ガイドボタン */}
+            <button onClick={() => setIsHelpModalOpen(true)} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 w-8 h-8 rounded-full shadow-sm hover:bg-gray-50 transition-all flex items-center justify-center font-bold text-gray-500 text-xs">
+                ?
+            </button>
             <button onClick={() => setIsSettingMode(!isSettingMode)} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-2 rounded-full shadow-sm hover:bg-gray-50 transition-all">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-600 dark:text-gray-300"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
             </button>
           </div>
         </div>
+
+        {/* 使い方ガイドモーダル */}
+        {isHelpModalOpen && (
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-full max-w-sm animation-fade-in border border-gray-100 dark:border-gray-700 max-h-[80vh] overflow-y-auto">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-sm font-bold text-gray-700 dark:text-gray-200 flex items-center gap-2">
+                           <span className="text-lg">📖</span> 使い方ガイド
+                        </h3>
+                        <button onClick={() => setIsHelpModalOpen(false)} className="text-gray-400 hover:text-gray-600">
+                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                    </div>
+                    <HelpGuide />
+                </div>
+            </div>
+        )}
 
         {/* 編集モーダル */}
         {isEditModalOpen && (
@@ -710,12 +732,6 @@ export default function Home() {
                    {isCsvMode && <button onClick={downloadCSV} className="mt-2 text-xs text-green-600 underline">過去データのダウンロード</button>}
                </section>
                
-               {/* 設定画面内のヘルプガイド (新規追加) */}
-               <section>
-                 <h3 className="text-xs font-bold text-gray-500 uppercase mb-3 border-b border-gray-100 dark:border-gray-700 pb-1">使い方がわからないときは？</h3>
-                 <HelpGuide />
-               </section>
-
                <button onClick={handleUpdateSettings} className="w-full bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-xl font-bold text-sm shadow-lg transition-transform active:scale-95">設定を保存して戻る</button>
              </div>
           </div>
