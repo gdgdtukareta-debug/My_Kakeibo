@@ -1155,13 +1155,14 @@ export default function Home() {
                               <p className="text-[9px] opacity-70 mb-0.5">現金 (貯金)</p>
                               <p className="text-xl font-mono font-bold">¥{investCash.toLocaleString()}</p>
                           </div>
-                          <div className="pl-4 flex-1 relative">
-                              <p className="text-[9px] opacity-70 mb-0.5">投資 (資産)</p>
+                          <div className="pl-4 flex-1">
+                              <div className="flex justify-between items-start">
+                                <p className="text-[9px] opacity-70 mb-0.5">投資 (資産)</p>
+                                <button onClick={() => setIsRecoverModalOpen(true)} className="bg-white/20 hover:bg-white hover:text-indigo-600 text-white rounded p-1 transition-colors shadow-sm" title="回収（リバランス）">
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
+                                </button>
+                              </div>
                               <p className="text-xl font-mono font-bold">¥{investStock.toLocaleString()}</p>
-                              {/* 回収ボタン */}
-                              <button onClick={() => setIsRecoverModalOpen(true)} className="absolute top-1 right-0 text-white/50 hover:text-white transition-colors p-1" title="回収">
-                                  <span className="text-sm">♻️</span>
-                              </button>
                           </div>
                       </div>
                       
