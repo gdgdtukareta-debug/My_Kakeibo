@@ -231,6 +231,22 @@ export default function Home() {
   const normalCategories = ["食費", "日用品", "趣味", "仕事", "その他", "特別支出", "投資", "貯金", "臨時収入"];
   const tacticsCategories = ["アンコントロール", "コントロール", "投資", "貯金", "臨時収入"];
 
+  // --- グラフ用カラー設定 ---
+  const categoryColors: Record<string, string> = {
+      "食費": "#f97316", // Orange
+      "日用品": "#06b6d4", // Cyan
+      "趣味": "#ec4899", // Pink
+      "仕事": "#64748b", // Slate
+      "その他": "#94a3b8", // Gray
+      "特別支出": "#ef4444", // Red
+      "アンコントロール": "#3b82f6", // Blue
+      "コントロール": "#ec4899", // Pink
+      "投資": "#8b5cf6", // Violet
+      "貯金": "#10b981", // Emerald
+      "臨時収入": "#fbbf24", // Amber (Gold)
+  };
+  const getCategoryColor = (cat: string) => categoryColors[cat] || "#cbd5e1";
+
   // --- 初期化 & Auth監視 ---
   useEffect(() => {
     const today = new Date();
@@ -501,9 +517,8 @@ export default function Home() {
         labels: currentCategories,
         datasets: [{
           data: currentCategories.map(c => catTotals[c]),
-          backgroundColor: currentBalance < 0 
-            ? ['#ef4444', '#f87171', '#dc2626', '#b91c1c', '#991b1b', '#db2777', '#4338ca', '#0d9488', '#059669']
-            : ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#6366f1', '#14b8a6', '#84cc16'],
+          // 変更: 固定カラーで表示
+          backgroundColor: currentCategories.map(c => getCategoryColor(c)),
           borderWidth: 0,
         }]
       });
@@ -768,7 +783,16 @@ export default function Home() {
                 <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-full max-w-sm animation-fade-in border border-gray-100 dark:border-gray-700 max-h-[80vh] overflow-y-auto">
                     <div className="flex justify-between items-center mb-4">
                         <h3 className="text-sm font-bold text-gray-700 dark:text-gray-200 flex items-center gap-2">
-                           <span className="text-lg">⚔️</span> Tactics Mode 定義
+                           {/* タイトルの切り替え: 生活防衛資金の場合は専用タイトル、それ以外はTactics Mode定義 */}
+                           {tacticsGuideType === 'defense' ? (
+                             <>
+                               <span className="text-lg">🏰</span> 生活防衛資金
+                             </>
+                           ) : (
+                             <>
+                               <span className="text-lg">⚔️</span> Tactics Mode 定義
+                             </>
+                           )}
                         </h3>
                         {/* 閉じるボタン: setTacticsGuideType(null) */}
                         <button onClick={() => setTacticsGuideType(null)} className="text-gray-400 hover:text-gray-600">
@@ -960,11 +984,10 @@ export default function Home() {
                                  <span>{defenseStatus === 2 ? '盤石' : '安心'}</span>
                                </div>
                              )}
-                             {isTacticsMode && (
-                                <button onClick={() => setTacticsGuideType('defense')} className="bg-white/20 hover:bg-white/30 p-1 rounded backdrop-blur-sm transition-colors">
-                                   <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                                </button>
-                             )}
+                             {/* 変更: 生活防衛資金ボタンは常時表示 */}
+                             <button onClick={() => setTacticsGuideType('defense')} className="bg-white/20 hover:bg-white/30 p-1 rounded backdrop-blur-sm transition-colors">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                             </button>
                           </div>
                       </div>
                       <div className="flex divide-x divide-white/20">
