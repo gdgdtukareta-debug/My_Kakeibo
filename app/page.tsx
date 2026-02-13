@@ -185,7 +185,8 @@ export default function Home() {
   const [theme, setTheme] = useState<ThemeOption>('system');
   const [tempResetValues, setTempResetValues] = useState({ special: 0, investCash: 0, investStock: 0 });
 
-  const categories = ["食費", "日用品", "趣味", "仕事", "その他", "特別支出", "投資", "貯金", "臨時収入"];
+  const normalCategories = ["食費", "日用品", "趣味", "仕事", "その他", "特別支出", "投資", "貯金", "臨時収入"];
+  const tacticsCategories = ["アンコントロール", "コントロール", "投資", "貯金", "臨時収入"];
 
   // --- 初期化 & Auth監視 ---
   useEffect(() => {
@@ -210,6 +211,15 @@ export default function Home() {
     };
     applyTheme(theme);
   }, [theme]);
+
+  // モード切り替え時に初期カテゴリを設定
+  useEffect(() => {
+      if (isTacticsMode) {
+          if (!tacticsCategories.includes(category)) setCategory("アンコントロール");
+      } else {
+          if (!normalCategories.includes(category)) setCategory("食費");
+      }
+  }, [isTacticsMode]);
 
   // --- ログイン処理 ---
   const handleLogin = async () => {
@@ -324,7 +334,7 @@ export default function Home() {
       if (lastAccessedMonth !== "" && lastAccessedMonth !== currentMonthKey) {
         
         const prevRegularSpent = rawHistory
-          .filter(item => !["特別支出", "投資", "貯金", "臨時収入"].includes(item.category))
+          .filter(item => !["特別支出", "投資", "貯金", "臨時収入", "コントロール"].includes(item.category)) // アンコントロールも生活費扱い
           .reduce((sum, item) => sum + item.amount, 0);
 
         let surplus = 0;
@@ -360,7 +370,7 @@ export default function Home() {
         if (isDue && isTime) {
           dataModified = true;
           const expense = sub.amount;
-          if (sub.category === "特別支出") currentSavings -= expense;
+          if (sub.category === "特別支出" || sub.category === "コントロール") currentSavings -= expense;
           else if (sub.category === "貯金") currentInvestCash -= expense;
           rawHistory.push({ amount: expense, category: sub.category, memo: `[Sub] ${sub.name}`, date: now.toISOString(), type: 'expense' });
           return { ...sub, lastPaidMonth: currentMonthKey };
@@ -402,16 +412,38 @@ export default function Home() {
       setHistory(sortedHistory);
 
       // --- 残高計算 ---
+      // const catTotals: { [key: string]: number } = {}; // 削除: 動的に生成する
+      const currentCategories = isTacticsMode ? tacticsCategories : normalCategories;
       const catTotals: { [key: string]: number } = {};
-      categories.forEach(c => catTotals[c] = 0);
+      currentCategories.forEach(c => catTotals[c] = 0);
+
       let totalAll = 0;
       let totalRegular = 0;
 
       rawHistory.forEach(item => {
         if (item.type !== 'transfer') {
             totalAll += item.amount;
-            catTotals[item.category] = (catTotals[item.category] || 0) + item.amount;
-            if (!["特別支出", "投資", "貯金", "臨時収入"].includes(item.category)) {
+            
+            // グラフ表示用に集計
+            // モードが違う場合は「その他」などにまとめるか、そのまま表示するか
+            // 簡易的に、現在のモードのカテゴリリストにあるものだけ集計し、ないものは無視or「その他」扱いにすると良いが、
+            // ここではシンプルに、カテゴリが存在すれば加算する（グラフには表示されない可能性があるが、計算は合う）
+            if (catTotals[item.category] !== undefined) {
+               catTotals[item.category] += item.amount;
+            } else {
+               // 存在しないカテゴリの場合（モード切替時など）、便宜上「その他」があればそこに、なければ無視（表示のみ）
+               // 厳密には、アンコントロール＝食費＋日用品...のようにマッピングすべきだが、
+               // 過去データはそのまま残る仕様のため、モード切り替え直後はグラフが一部欠ける可能性がある。
+               // これは許容し、今後の入力で整えていく運用とする。
+               if(isTacticsMode && !["コントロール", "投資", "貯金", "臨時収入"].includes(item.category)) {
+                   // Tacticsモードで、Normalカテゴリのデータは「アンコントロール」に合算して表示する?
+                   // 今回は複雑化を避けるため、グラフは「現在入力可能なカテゴリ」のみを表示する仕様のままにする。
+               }
+            }
+
+            // 生活費残高（Regular Spent）の計算
+            // 特別費（コントロール）、投資、貯金、臨時収入 以外はすべて生活費扱い
+            if (!["特別支出", "コントロール", "投資", "貯金", "臨時収入"].includes(item.category)) {
               totalRegular += item.amount;
             }
         }
@@ -430,9 +462,9 @@ export default function Home() {
       setBalance(currentBalance);
 
       setChartData({
-        labels: categories,
+        labels: currentCategories,
         datasets: [{
-          data: categories.map(c => catTotals[c]),
+          data: currentCategories.map(c => catTotals[c]),
           backgroundColor: currentBalance < 0 
             ? ['#ef4444', '#f87171', '#dc2626', '#b91c1c', '#991b1b', '#db2777', '#4338ca', '#0d9488', '#059669']
             : ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#6366f1', '#14b8a6', '#84cc16'],
@@ -459,7 +491,7 @@ export default function Home() {
       let newInvestStock = investStock;
       let type: 'expense' | 'income' | 'transfer' = 'expense';
 
-      if (category === "特別支出") {
+      if (category === "特別支出" || category === "コントロール") {
         newSavings -= amount;
       } else if (category === "貯金") {
         newInvestCash -= amount;
@@ -471,6 +503,7 @@ export default function Home() {
         newInvestCash += amount;
         type = 'income';
       }
+      // アンコントロール、食費などは生活費残高(balance)から引かれるが、balanceは計算結果なのでDB保存は不要
 
       const recordDate = new Date(inputDate);
       const now = new Date();
@@ -515,7 +548,7 @@ export default function Home() {
     if (!confirm("削除しますか？")) return;
     const item = history[index];
     let ns = savings, nic = investCash, nis = investStock;
-    if (item.category === "特別支出") ns += item.amount;
+    if (item.category === "特別支出" || item.category === "コントロール") ns += item.amount;
     else if (item.category === "貯金") nic += item.amount;
     else if (item.category === "投資") { nic += item.amount; nis -= item.amount; }
     else if (item.category === "臨時収入") nic -= item.amount;
@@ -549,14 +582,14 @@ export default function Home() {
       const oldItem = history[editIndex];
       let ns = savings, nic = investCash, nis = investStock;
       
-      if (oldItem.category === "特別支出") ns += oldItem.amount;
+      if (oldItem.category === "特別支出" || oldItem.category === "コントロール") ns += oldItem.amount;
       else if (oldItem.category === "貯金") nic += oldItem.amount;
       else if (oldItem.category === "投資") { nic += oldItem.amount; nis -= oldItem.amount; }
       else if (oldItem.category === "臨時収入") nic -= oldItem.amount;
 
       // 2. 新データの影響を適用
       const newAmount = Number(editForm.amount);
-      if (editForm.category === "特別支出") ns -= newAmount;
+      if (editForm.category === "特別支出" || editForm.category === "コントロール") ns -= newAmount;
       else if (editForm.category === "貯金") nic -= newAmount;
       else if (editForm.category === "投資") { nic -= newAmount; nis += newAmount; }
       else if (editForm.category === "臨時収入") nic += newAmount;
@@ -609,6 +642,8 @@ export default function Home() {
 
   // --- 表示する履歴の制御 ---
   const displayHistory = showAllHistory ? history : history.slice(0, 5);
+  // カテゴリリストの切り替え
+  const currentCategories = isTacticsMode ? tacticsCategories : normalCategories;
 
   if (authLoading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 text-gray-500 font-mono">Loading App...</div>;
 
@@ -725,7 +760,7 @@ export default function Home() {
                    <label className="text-[10px] text-gray-400 block mb-1">カテゴリ</label>
                    <select className="w-full p-2 bg-gray-50 dark:bg-gray-700 rounded text-xs"
                      value={editForm.category} onChange={(e)=>setEditForm({...editForm, category: e.target.value})}>
-                     {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                     {currentCategories.map(c => <option key={c} value={c}>{c}</option>)}
                    </select>
                  </div>
                  <div>
@@ -833,9 +868,16 @@ export default function Home() {
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               <div className="bg-white dark:bg-gray-800 p-4 rounded-3xl shadow-sm border border-blue-50 dark:border-gray-700 relative overflow-hidden group">
                   <div className="absolute top-0 right-0 w-16 h-16 bg-blue-50 dark:bg-blue-900/20 rounded-bl-full -mr-4 -mt-4 transition-transform group-hover:scale-110"></div>
-                  <p className="text-[10px] font-bold text-blue-400 dark:text-blue-300 mb-1 uppercase tracking-wider relative z-10">
-                    {isTacticsMode ? "🛡️【義務】アンコントロール" : "生活費残高"}
-                  </p>
+                  <div className="relative z-10 flex justify-between items-start">
+                     <p className="text-[10px] font-bold text-blue-400 dark:text-blue-300 mb-1 uppercase tracking-wider">
+                       {isTacticsMode ? "🛡️【義務】アンコントロール" : "生活費残高"}
+                     </p>
+                     {isTacticsMode && (
+                        <button onClick={() => setIsTacticsGuideOpen(true)} className="text-blue-400 hover:text-blue-600 -mt-1 -mr-1 p-1">
+                           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                        </button>
+                     )}
+                  </div>
                   <p className={`text-2xl font-mono font-bold relative z-10 ${balance < 0 ? 'text-red-500' : 'text-gray-800 dark:text-white'}`}>¥{balance.toLocaleString()}</p>
                   <p className="text-[8px] text-gray-400 dark:text-gray-500 mt-1 font-mono">
                     {isTacticsMode ? "Uncontrollable Expenses" : (livingBudgetMode === 'daily' ? 'Daily Accumulation' : 'Monthly Budget')}
@@ -844,9 +886,16 @@ export default function Home() {
               
               <div className="bg-white dark:bg-gray-800 p-4 rounded-3xl shadow-sm border border-pink-50 dark:border-gray-700 relative overflow-hidden group">
                   <div className="absolute top-0 right-0 w-16 h-16 bg-pink-50 dark:bg-pink-900/20 rounded-bl-full -mr-4 -mt-4 transition-transform group-hover:scale-110"></div>
-                  <p className="text-[10px] font-bold text-pink-400 dark:text-pink-300 mb-1 uppercase tracking-wider relative z-10">
-                    {isTacticsMode ? "🎮【裁量】コントロール" : "特別費"}
-                  </p>
+                  <div className="relative z-10 flex justify-between items-start">
+                     <p className="text-[10px] font-bold text-pink-400 dark:text-pink-300 mb-1 uppercase tracking-wider">
+                       {isTacticsMode ? "🎮【裁量】コントロール" : "特別費"}
+                     </p>
+                     {isTacticsMode && (
+                        <button onClick={() => setIsTacticsGuideOpen(true)} className="text-pink-400 hover:text-pink-600 -mt-1 -mr-1 p-1">
+                           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                        </button>
+                     )}
+                  </div>
                   <p className="text-2xl font-mono font-bold text-gray-800 dark:text-white relative z-10">¥{savings.toLocaleString()}</p>
                   {isTacticsMode && <p className="text-[8px] text-gray-400 dark:text-gray-500 mt-1 font-mono">Controllable Expenses</p>}
               </div>
@@ -880,14 +929,14 @@ export default function Home() {
                     {/* 入力エリア */}
                     <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-lg p-5 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700">
                       <div className="flex flex-wrap gap-2 mb-4 justify-center">
-                        {categories.map(cat => (
+                        {currentCategories.map(cat => (
                           <button key={cat} onClick={() => setCategory(cat)}
                             className={`px-3 py-1.5 rounded-full text-[10px] font-bold transition-all ${
                               category === cat 
-                                ? (['投資','貯金','臨時収入'].includes(cat) ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200 dark:shadow-none' : cat === '特別支出' ? 'bg-pink-500 text-white shadow-md shadow-pink-200 dark:shadow-none' : 'bg-blue-600 text-white shadow-md shadow-blue-200 dark:shadow-none') 
+                                ? (['投資','貯金','臨時収入'].includes(cat) ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200 dark:shadow-none' : (cat === '特別支出' || cat === 'コントロール') ? 'bg-pink-500 text-white shadow-md shadow-pink-200 dark:shadow-none' : 'bg-blue-600 text-white shadow-md shadow-blue-200 dark:shadow-none') 
                                 : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
                             }`}>
-                            {isTacticsMode && cat === '特別支出' ? '裁量(特別)' : cat}
+                            {cat}
                           </button>
                         ))}
                       </div>
@@ -906,7 +955,7 @@ export default function Home() {
                                 className="w-full p-2 bg-gray-50 dark:bg-gray-900 rounded-lg text-[10px] font-mono text-gray-500 dark:text-gray-400 outline-none text-center"
                                 value={inputDate} onChange={(e) => setInputDate(e.target.value)}
                              />
-                             <button onClick={handlePayment} className={`h-full text-white rounded-xl font-bold text-sm shadow-lg active:scale-95 transition-all uppercase tracking-widest ${['投資','貯金','臨時収入'].includes(category) ? 'bg-indigo-600' : category === '特別支出' ? 'bg-pink-500' : 'bg-blue-600'}`}>
+                             <button onClick={handlePayment} className={`h-full text-white rounded-xl font-bold text-sm shadow-lg active:scale-95 transition-all uppercase tracking-widest ${['投資','貯金','臨時収入'].includes(category) ? 'bg-indigo-600' : (category === '特別支出' || category === 'コントロール') ? 'bg-pink-500' : 'bg-blue-600'}`}>
                                決定
                              </button>
                           </div>
@@ -926,7 +975,7 @@ export default function Home() {
                             <div key={index} className="flex items-start justify-between border-b border-gray-50 dark:border-gray-700 pb-3 last:border-0">
                               <div className="flex-1">
                                 <div className="flex items-center gap-2 mb-1">
-                                  <span className={`text-[8px] font-bold px-2 py-0.5 rounded-full uppercase ${['投資','貯金','臨時収入'].includes(item.category) ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-300' : item.category === '特別支出' ? 'bg-pink-100 text-pink-600 dark:bg-pink-900 dark:text-pink-300' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300'}`}>{isTacticsMode && item.category === '特別支出' ? '裁量(特別)' : item.category}</span>
+                                  <span className={`text-[8px] font-bold px-2 py-0.5 rounded-full uppercase ${['投資','貯金','臨時収入'].includes(item.category) ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-300' : (item.category === '特別支出' || item.category === 'コントロール') ? 'bg-pink-100 text-pink-600 dark:bg-pink-900 dark:text-pink-300' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300'}`}>{item.category}</span>
                                   <span className="text-[10px] text-gray-400 font-mono">{new Date(item.date).toLocaleDateString()}</span>
                                 </div>
                                 <div className="flex items-baseline gap-2">
