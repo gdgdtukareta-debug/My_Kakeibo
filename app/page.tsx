@@ -1016,7 +1016,7 @@ export default function Home() {
                             <div>
                                 <label className="text-[10px] text-gray-400 block">欲しい物 (名称)</label>
                                 <input type="text" className="w-full p-1 border-b border-gray-200 dark:border-gray-600 bg-transparent text-xs" 
-                                    value={targetItem?.name || ""} onChange={(e)=>setTargetItem({...targetItem, name: e.target.value, targetAmount: targetItem?.targetAmount||0, currentAmount: targetItem?.currentAmount||0})} placeholder="例: 新しいテレビgit add ." />
+                                    value={targetItem?.name || ""} onChange={(e)=>setTargetItem({...targetItem, name: e.target.value, targetAmount: targetItem?.targetAmount||0, currentAmount: targetItem?.currentAmount||0})} placeholder="例: 新しいテレビ" />
                             </div>
                             <div>
                                 <label className="text-[10px] text-gray-400 block">目標金額</label>
