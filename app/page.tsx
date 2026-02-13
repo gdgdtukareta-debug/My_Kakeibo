@@ -31,46 +31,54 @@ type BudgetMode = 'daily' | 'monthly';
 
 type Archives = { [key: string]: Transaction[] };
 
-// --- Tactics Mode 定義ガイドコンポーネント ---
-const TacticsGuide = () => (
-  <div className="bg-gray-50 dark:bg-gray-800/50 p-5 rounded-2xl text-xs text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 leading-relaxed space-y-6">
-    <div className="border-l-4 border-blue-500 pl-3">
-      <h4 className="font-bold text-blue-600 dark:text-blue-400 mb-1 text-sm flex items-center gap-2">
-        <span>🛡️</span> 1. 【義務】アンコントロール領域
-        <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded ml-auto">旧：生活費</span>
-      </h4>
-      <p className="font-bold text-gray-800 dark:text-gray-200 mb-1">
-        「自分の意思では金額も時期もコントロールできない出費」
-      </p>
-      <p className="mb-2 opacity-80">
-        払わないと社会生活や健康に即座に悪影響が出るもの。ここは予算をオーバーしても仕方がない「聖域」です。
-      </p>
-      <div className="bg-white dark:bg-gray-700/50 p-3 rounded-lg space-y-1">
-        <p><span className="font-bold text-blue-500">医療費・薬代</span>：風邪や歯医者はタイミングを選べません。</p>
-        <p><span className="font-bold text-blue-500">会費</span>：組織に属する以上、強制徴収です。</p>
-        <p><span className="font-bold text-blue-500">冠婚葬祭</span>：避けることができません。</p>
-        <p><span className="font-bold text-blue-500">サブスク・QOL維持</span>：自動引き落としや、毎日のコーヒーなど。</p>
-      </div>
+// --- Tactics Mode 定義コンテンツ (分割) ---
+const UncontrolContent = () => (
+  <div className="border-l-4 border-blue-500 pl-3">
+    <h4 className="font-bold text-blue-600 dark:text-blue-400 mb-1 text-sm flex items-center gap-2">
+      <span>🛡️</span> 1. 【義務】アンコントロール領域
+      <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded ml-auto">旧：生活費</span>
+    </h4>
+    <p className="font-bold text-gray-800 dark:text-gray-200 mb-1">
+      「自分の意思では金額も時期もコントロールできない出費」
+    </p>
+    <p className="mb-2 opacity-80">
+      払わないと社会生活や健康に即座に悪影響が出るもの。ここは予算をオーバーしても仕方がない「聖域」です。
+    </p>
+    <div className="bg-white dark:bg-gray-700/50 p-3 rounded-lg space-y-1">
+      <p><span className="font-bold text-blue-500">医療費・薬代</span>：風邪や歯医者はタイミングを選べません。</p>
+      <p><span className="font-bold text-blue-500">会費</span>：組織に属する以上、強制徴収です。</p>
+      <p><span className="font-bold text-blue-500">冠婚葬祭</span>：避けることができません。</p>
+      <p><span className="font-bold text-blue-500">サブスク・QOL維持</span>：自動引き落としや、毎日のコーヒーなど。</p>
     </div>
+  </div>
+);
 
-    <div className="border-l-4 border-pink-500 pl-3">
-      <h4 className="font-bold text-pink-600 dark:text-pink-400 mb-1 text-sm flex items-center gap-2">
-        <span>🎮</span> 2. 【裁量】コントロール領域
-        <span className="text-[10px] bg-pink-100 text-pink-600 px-1.5 py-0.5 rounded ml-auto">旧：特別費</span>
-      </h4>
-      <p className="font-bold text-gray-800 dark:text-gray-200 mb-1">
-        「買うか買わないか、あるいは金額を自分で決められる出費」
-      </p>
-      <p className="mb-2 opacity-80">
-        ここが調整弁です。「義務」の出費が多かった月は、ここを削って枠内に収めます。
-      </p>
-      <div className="bg-white dark:bg-gray-700/50 p-3 rounded-lg space-y-1">
-        <p><span className="font-bold text-pink-500">ジュースのストック</span>：「今月買うか、来月まで我慢して水道水にするか」は選べます。</p>
-        <p><span className="font-bold text-pink-500">家族との外食</span>：「行く・行かない」「スシローか公園か」を選べます。</p>
-        <p><span className="font-bold text-pink-500">ガジェット・PCパーツ</span>：完全に自分の意思です。</p>
-        <p><span className="font-bold text-pink-500">自分だけのおやつ</span>：我慢すれば0円にできます。</p>
-      </div>
+const ControlContent = () => (
+  <div className="border-l-4 border-pink-500 pl-3">
+    <h4 className="font-bold text-pink-600 dark:text-pink-400 mb-1 text-sm flex items-center gap-2">
+      <span>🎮</span> 2. 【裁量】コントロール領域
+      <span className="text-[10px] bg-pink-100 text-pink-600 px-1.5 py-0.5 rounded ml-auto">旧：特別費</span>
+    </h4>
+    <p className="font-bold text-gray-800 dark:text-gray-200 mb-1">
+      「買うか買わないか、あるいは金額を自分で決められる出費」
+    </p>
+    <p className="mb-2 opacity-80">
+      ここが調整弁です。「義務」の出費が多かった月は、ここを削って枠内に収めます。
+    </p>
+    <div className="bg-white dark:bg-gray-700/50 p-3 rounded-lg space-y-1">
+      <p><span className="font-bold text-pink-500">ジュースのストック</span>：「今月買うか、来月まで我慢して水道水にするか」は選べます。</p>
+      <p><span className="font-bold text-pink-500">家族との外食</span>：「行く・行かない」「スシローか公園か」を選べます。</p>
+      <p><span className="font-bold text-pink-500">ガジェット・PCパーツ</span>：完全に自分の意思です。</p>
+      <p><span className="font-bold text-pink-500">自分だけのおやつ</span>：我慢すれば0円にできます。</p>
     </div>
+  </div>
+);
+
+// --- Tactics Guide コンポーネント (統合版) ---
+const TacticsGuide = ({ type }: { type: 'uncontrol' | 'control' | 'all' }) => (
+  <div className="bg-gray-50 dark:bg-gray-800/50 p-5 rounded-2xl text-xs text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 leading-relaxed space-y-6">
+    {(type === 'all' || type === 'uncontrol') && <UncontrolContent />}
+    {(type === 'all' || type === 'control') && <ControlContent />}
   </div>
 );
 
@@ -179,7 +187,8 @@ export default function Home() {
   const [editIndex, setEditIndex] = useState<number | null>(null);
   const [editForm, setEditForm] = useState({ amount: 0, category: "", memo: "", date: "" });
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false); 
-  const [isTacticsGuideOpen, setIsTacticsGuideOpen] = useState(false); // New: Tactics Guide
+  // 変更: ガイドの種類を管理するState ('uncontrol' | 'control' | 'all' | null)
+  const [tacticsGuideType, setTacticsGuideType] = useState<'uncontrol' | 'control' | 'all' | null>(null);
 
   // --- テーマ & リセット用 ---
   const [theme, setTheme] = useState<ThemeOption>('system');
@@ -425,19 +434,12 @@ export default function Home() {
             totalAll += item.amount;
             
             // グラフ表示用に集計
-            // モードが違う場合は「その他」などにまとめるか、そのまま表示するか
-            // 簡易的に、現在のモードのカテゴリリストにあるものだけ集計し、ないものは無視or「その他」扱いにすると良いが、
-            // ここではシンプルに、カテゴリが存在すれば加算する（グラフには表示されない可能性があるが、計算は合う）
             if (catTotals[item.category] !== undefined) {
                catTotals[item.category] += item.amount;
             } else {
-               // 存在しないカテゴリの場合（モード切替時など）、便宜上「その他」があればそこに、なければ無視（表示のみ）
-               // 厳密には、アンコントロール＝食費＋日用品...のようにマッピングすべきだが、
-               // 過去データはそのまま残る仕様のため、モード切り替え直後はグラフが一部欠ける可能性がある。
-               // これは許容し、今後の入力で整えていく運用とする。
+               // 存在しないカテゴリの場合（モード切替時など）は無視（表示のみ）
                if(isTacticsMode && !["コントロール", "投資", "貯金", "臨時収入"].includes(item.category)) {
-                   // Tacticsモードで、Normalカテゴリのデータは「アンコントロール」に合算して表示する?
-                   // 今回は複雑化を避けるため、グラフは「現在入力可能なカテゴリ」のみを表示する仕様のままにする。
+                   // 将来的にマッピング機能を検討
                }
             }
 
@@ -720,19 +722,21 @@ export default function Home() {
             </div>
         )}
 
-        {/* Tactics Modeガイドモーダル */}
-        {isTacticsGuideOpen && (
+        {/* Tactics Modeガイドモーダル (変更: tacticsGuideType !== null で表示) */}
+        {tacticsGuideType !== null && (
             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                 <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-full max-w-sm animation-fade-in border border-gray-100 dark:border-gray-700 max-h-[80vh] overflow-y-auto">
                     <div className="flex justify-between items-center mb-4">
                         <h3 className="text-sm font-bold text-gray-700 dark:text-gray-200 flex items-center gap-2">
                            <span className="text-lg">⚔️</span> Tactics Mode 定義
                         </h3>
-                        <button onClick={() => setIsTacticsGuideOpen(false)} className="text-gray-400 hover:text-gray-600">
+                        {/* 閉じるボタン: setTacticsGuideType(null) */}
+                        <button onClick={() => setTacticsGuideType(null)} className="text-gray-400 hover:text-gray-600">
                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
                         </button>
                     </div>
-                    <TacticsGuide />
+                    {/* typeを渡して表示内容を切り替え */}
+                    <TacticsGuide type={tacticsGuideType} />
                 </div>
             </div>
         )}
@@ -798,7 +802,8 @@ export default function Home() {
                    </div>
                  </div>
                  {isTacticsMode && (
-                   <button onClick={() => setIsTacticsGuideOpen(true)} className="w-full text-center text-[10px] text-blue-500 underline py-1">
+                   // 変更: 設定画面からは'all'で両方表示
+                   <button onClick={() => setTacticsGuideType('all')} className="w-full text-center text-[10px] text-blue-500 underline py-1">
                      【定義を確認】義務・裁量の分類例
                    </button>
                  )}
@@ -873,7 +878,8 @@ export default function Home() {
                        {isTacticsMode ? "🛡️【義務】アンコントロール" : "生活費残高"}
                      </p>
                      {isTacticsMode && (
-                        <button onClick={() => setIsTacticsGuideOpen(true)} className="text-blue-400 hover:text-blue-600 -mt-1 -mr-1 p-1">
+                        // 変更: 'uncontrol' のみ表示
+                        <button onClick={() => setTacticsGuideType('uncontrol')} className="text-blue-400 hover:text-blue-600 -mt-1 -mr-1 p-1">
                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                         </button>
                      )}
@@ -891,7 +897,8 @@ export default function Home() {
                        {isTacticsMode ? "🎮【裁量】コントロール" : "特別費"}
                      </p>
                      {isTacticsMode && (
-                        <button onClick={() => setIsTacticsGuideOpen(true)} className="text-pink-400 hover:text-pink-600 -mt-1 -mr-1 p-1">
+                        // 変更: 'control' のみ表示
+                        <button onClick={() => setTacticsGuideType('control')} className="text-pink-400 hover:text-pink-600 -mt-1 -mr-1 p-1">
                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                         </button>
                      )}
