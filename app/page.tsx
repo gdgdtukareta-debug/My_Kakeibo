@@ -243,8 +243,9 @@ export default function Home() {
   const [theme, setTheme] = useState<ThemeOption>('system');
   const [tempResetValues, setTempResetValues] = useState({ special: 0, investCash: 0, investStock: 0 });
 
-  const normalCategories = ["食費", "日用品", "趣味", "仕事", "その他", "特別支出", "投資", "貯金", "臨時収入", "投資回収"];
-  const tacticsCategories = ["アンコントロール", "コントロール", "投資", "貯金", "臨時収入", "投資回収"];
+  // 積立取崩を追加
+  const normalCategories = ["食費", "日用品", "趣味", "仕事", "その他", "特別支出", "投資", "貯金", "臨時収入", "投資回収", "積立取崩"];
+  const tacticsCategories = ["アンコントロール", "コントロール", "投資", "貯金", "臨時収入", "投資回収", "積立取崩"];
 
   // --- グラフ用カラー設定 ---
   const categoryColors: Record<string, string> = {
@@ -260,6 +261,7 @@ export default function Home() {
       "貯金": "#10b981", // Emerald
       "臨時収入": "#fbbf24", // Amber (Gold)
       "投資回収": "#6366f1", // Indigo (回収)
+      "積立取崩": "#a5b4fc", // Indigo Light
   };
   const getCategoryColor = (cat: string) => categoryColors[cat] || "#cbd5e1";
 
@@ -419,7 +421,7 @@ export default function Home() {
       if (lastAccessedMonth !== "" && lastAccessedMonth !== currentMonthKey) {
         
         const prevRegularSpent = rawHistory
-          .filter(item => !["特別支出", "投資", "貯金", "臨時収入", "コントロール", "投資回収"].includes(item.category)) // アンコントロールも生活費扱い
+          .filter(item => !["特別支出", "投資", "貯金", "臨時収入", "コントロール", "投資回収", "積立取崩"].includes(item.category)) // アンコントロールも生活費扱い
           .reduce((sum, item) => sum + item.amount, 0);
 
         let surplus = 0;
@@ -525,17 +527,15 @@ export default function Home() {
             if (catTotals[item.category] !== undefined) {
                catTotals[item.category] += item.amount;
             }
-            // 投資回収などの特殊カテゴリを考慮
-            if (item.category === "投資回収") {
-                // ここでは支出合計には含めない（収入扱いのため）
+            // 投資回収・積立取崩などの特殊カテゴリ
+            if (item.category === "投資回収" || item.category === "積立取崩") {
+                // 収入扱いのため、支出合計からは引く（あるいは無視）
                 totalAll -= item.amount;
-                // グラフには表示したいが、プラスの収入なので別途考える？
-                // 今回は支出円グラフなので除外するか、あるいはマイナスとして扱う
             }
 
             // 生活費残高（Regular Spent）の計算
-            // 特別費（コントロール）、投資、貯金、臨時収入、投資回収 以外はすべて生活費扱い
-            if (!["特別支出", "コントロール", "投資", "貯金", "臨時収入", "投資回収"].includes(item.category)) {
+            // 特別費（コントロール）、投資、貯金、臨時収入、投資回収、積立取崩 以外はすべて生活費扱い
+            if (!["特別支出", "コントロール", "投資", "貯金", "臨時収入", "投資回収", "積立取崩"].includes(item.category)) {
               totalRegular += item.amount;
             }
         }
@@ -594,7 +594,17 @@ export default function Home() {
         newInvestCash += amount;
         type = 'income';
       }
-      // 投資回収はここには来ない（ボタンからのみ）
+      // 投資回収、積立取崩はUIから直接選択しない想定だが、もし選択されたら？
+      // 基本的にカテゴリリストに出てくるので処理は必要
+      else if (category === "投資回収") {
+          newInvestCash += amount;
+          newInvestStock -= amount;
+          type = 'income';
+      } else if (category === "積立取崩") {
+          newSavings += amount;
+          type = 'income';
+      }
+
 
       const recordDate = new Date(inputDate);
       const now = new Date();
@@ -652,6 +662,65 @@ export default function Home() {
           alert("回収処理に失敗しました");
       }
   };
+  
+  // --- ターゲット達成後の購入処理 (New) ---
+  const handlePurchaseTarget = async () => {
+      if (!user || !targetItem) return;
+      
+      const confirmPurchase = confirm(`「${targetItem.name}」を購入処理しますか？\n\n支出記録と同時に、積み立てた資金(${targetItem.currentAmount.toLocaleString()}円)を特別費に充当し、ターゲット設定をリセットします。`);
+      if (!confirmPurchase) return;
+
+      try {
+          const docRef = doc(db, "users", user.uid);
+          const now = new Date();
+          const purchaseAmount = targetItem.currentAmount; // 全額使用
+          
+          // 1. 支出レコード (コントロール/特別支出)
+          const expenseRecord: Transaction = {
+              amount: purchaseAmount,
+              category: isTacticsMode ? "コントロール" : "特別支出",
+              memo: `Target達成: ${targetItem.name}`,
+              date: now.toISOString(),
+              type: 'expense'
+          };
+          
+          // 2. 収入レコード (積立取崩 -> 特別費への充当)
+          const incomeRecord: Transaction = {
+              amount: purchaseAmount,
+              category: "積立取崩",
+              memo: `Target積立より充当: ${targetItem.name}`,
+              date: now.toISOString(),
+              type: 'income'
+          };
+          
+          // 残高計算: 
+          // 支出で savings が減る
+          // 収入(積立取崩) で savings が増える
+          // 結果、savings(特別費) の残高は変わらない（隔離資金を使ったため）
+          // ただし、隔離枠(targetItem)は消えるので、資産総額としては減る（正しい挙動）
+          
+          const newHistory = [...history, expenseRecord, incomeRecord];
+          
+          // 設定のリセット
+          const newSettings = {
+              ...((await getDoc(docRef)).data()?.settings || {}),
+              targetItem: null
+          };
+
+          await updateDoc(docRef, {
+              history: newHistory,
+              settings: newSettings
+          });
+
+          setTargetItem(null);
+          loadData();
+          alert(`おめでとうございます！🎉\n「${targetItem.name}」の購入を記録しました。`);
+
+      } catch(e) {
+          alert("購入処理に失敗しました");
+      }
+  };
+
 
   // --- 設定更新 ---
   const handleUpdateSettings = async () => {
@@ -685,7 +754,8 @@ export default function Home() {
     else if (item.category === "貯金") nic += item.amount;
     else if (item.category === "投資") { nic += item.amount; nis -= item.amount; }
     else if (item.category === "臨時収入") nic -= item.amount;
-    else if (item.category === "投資回収") { nic -= item.amount; nis += item.amount; } // 逆操作
+    else if (item.category === "投資回収") { nic -= item.amount; nis += item.amount; }
+    else if (item.category === "積立取崩") { ns -= item.amount; } // 逆操作
 
     const newH = history.filter((_, i) => i !== index);
     await updateDoc(doc(db, "users", user.uid), { history: newH, savings_balance: ns, invest_cash_balance: nic, invest_stock_balance: nis });
@@ -724,24 +794,22 @@ export default function Home() {
           else if (item.category === "投資") { nic += amt * sign; nis -= amt * sign; }
           else if (item.category === "臨時収入") nic -= amt * sign;
           else if (item.category === "投資回収") { nic -= amt * sign; nis += amt * sign; }
+          else if (item.category === "積立取崩") { ns += amt * sign; }
       }
       
       revert(oldItem, true); // 旧データを戻す
 
       // 2. 新データの影響を適用
-      // 簡易化のため、編集時は「投資回収」カテゴリへの変更などはUIで制限するか、ロジックを網羅する
-      // 今回は通常カテゴリへの変更のみ考慮し、投資回収の編集は金額変更のみ対応とする
-      
       const newAmount = Number(editForm.amount);
       const newItem = { ...oldItem, amount: newAmount, category: editForm.category }; // 型合わせ
       
-      // categoryが投資回収から変わる場合などは複雑になるため、ここでは簡易的に処理
       const apply = (cat: string, amt: number) => {
            if (cat === "特別支出" || cat === "コントロール") ns -= amt;
            else if (cat === "貯金") nic -= amt;
            else if (cat === "投資") { nic -= amt; nis += amt; }
            else if (cat === "臨時収入") nic += amt;
            else if (cat === "投資回収") { nic += amt; nis -= amt; }
+           else if (cat === "積立取崩") { ns += amt; }
       }
       
       apply(editForm.category, newAmount);
@@ -749,7 +817,7 @@ export default function Home() {
       // 3. タイプ判定
       let newType: 'expense' | 'income' | 'transfer' = 'expense';
       if (editForm.category === "投資") newType = 'transfer';
-      else if (editForm.category === "臨時収入" || editForm.category === "投資回収") newType = 'income';
+      else if (editForm.category === "臨時収入" || editForm.category === "投資回収" || editForm.category === "積立取崩") newType = 'income';
 
       // 4. 配列更新
       const newHistory = [...history];
@@ -802,6 +870,9 @@ export default function Home() {
   const defenseFundLine1 = monthlyBaseExpense * 3;
   const defenseFundLine2 = monthlyBaseExpense * 6;
   const defenseStatus = investCash >= defenseFundLine2 ? 2 : investCash >= defenseFundLine1 ? 1 : 0;
+  
+  // --- ターゲット達成判定 ---
+  const isTargetReached = targetItem && targetItem.currentAmount >= targetItem.targetAmount;
 
   if (authLoading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 text-gray-500 font-mono">Loading App...</div>;
 
@@ -1191,11 +1262,11 @@ export default function Home() {
 
             {/* Target Card (New) - 欲しい物リスト表示 */}
             {surplusAction === 'target' && targetItem && (
-               <div className="bg-gradient-to-r from-pink-500 to-rose-500 p-4 rounded-2xl shadow-sm text-white relative overflow-hidden animate-fade-in">
+               <div className={`p-4 rounded-2xl shadow-sm text-white relative overflow-hidden animate-fade-in transition-all duration-500 ${isTargetReached ? 'bg-gradient-to-r from-yellow-400 to-orange-500 ring-4 ring-yellow-200 dark:ring-yellow-900' : 'bg-gradient-to-r from-pink-500 to-rose-500'}`}>
                   <div className="absolute opacity-10 top-[-10px] right-[-10px] w-24 h-24 bg-white rounded-full blur-xl"></div>
                   <div className="relative z-10">
                       <div className="flex justify-between items-center mb-1">
-                          <p className="text-[10px] font-bold uppercase tracking-widest opacity-90">Current Target</p>
+                          <p className="text-[10px] font-bold uppercase tracking-widest opacity-90">{isTargetReached ? "Goal Reached! 🎉" : "Current Target"}</p>
                           <span className="text-[10px] font-bold bg-white/20 px-2 py-0.5 rounded">{Math.round((targetItem.currentAmount / targetItem.targetAmount) * 100)}%</span>
                       </div>
                       <h3 className="text-lg font-bold mb-2">{targetItem.name}</h3>
@@ -1203,10 +1274,17 @@ export default function Home() {
                           <span className="text-xl font-bold">¥{targetItem.currentAmount.toLocaleString()}</span>
                           <span className="opacity-70">/ ¥{targetItem.targetAmount.toLocaleString()}</span>
                       </div>
-                      <div className="w-full bg-black/20 rounded-full h-2 overflow-hidden">
-                          <div className="h-full bg-white transition-all duration-1000" style={{ width: `${Math.min((targetItem.currentAmount / targetItem.targetAmount) * 100, 100)}%` }}></div>
+                      <div className="w-full bg-black/20 rounded-full h-2 overflow-hidden mb-2">
+                          <div className={`h-full bg-white transition-all duration-1000 ${isTargetReached ? 'animate-pulse' : ''}`} style={{ width: `${Math.min((targetItem.currentAmount / targetItem.targetAmount) * 100, 100)}%` }}></div>
                       </div>
-                      <p className="text-[9px] opacity-70 mt-1 text-right">余剰金から自動積立中</p>
+                      
+                      {isTargetReached ? (
+                          <button onClick={handlePurchaseTarget} className="w-full mt-2 py-2 bg-white text-orange-600 font-bold text-xs rounded-lg shadow-md hover:bg-gray-100 transition-transform active:scale-95 animate-bounce">
+                              🎁 GET! (購入して記録)
+                          </button>
+                      ) : (
+                          <p className="text-[9px] opacity-70 mt-1 text-right">余剰金から自動積立中</p>
+                      )}
                   </div>
                </div>
             )}
@@ -1223,7 +1301,7 @@ export default function Home() {
                           <button key={cat} onClick={() => setCategory(cat)}
                             className={`px-3 py-1.5 rounded-full text-[10px] font-bold transition-all ${
                               category === cat 
-                                ? (['投資','貯金','臨時収入'].includes(cat) ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200 dark:shadow-none' : (cat === '特別支出' || cat === 'コントロール') ? 'bg-pink-500 text-white shadow-md shadow-pink-200 dark:shadow-none' : (cat === '投資回収' ? 'bg-gray-600 text-white' : 'bg-blue-600 text-white shadow-md shadow-blue-200 dark:shadow-none')) 
+                                ? (['投資','貯金','臨時収入'].includes(cat) ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200 dark:shadow-none' : (cat === '特別支出' || cat === 'コントロール') ? 'bg-pink-500 text-white shadow-md shadow-pink-200 dark:shadow-none' : (cat === '投資回収' ? 'bg-gray-600 text-white' : (cat === '積立取崩' ? 'bg-indigo-300 text-white' : 'bg-blue-600 text-white shadow-md shadow-blue-200 dark:shadow-none'))) 
                                 : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
                             }`}>
                             {cat}
@@ -1265,12 +1343,12 @@ export default function Home() {
                             <div key={index} className="flex items-start justify-between border-b border-gray-50 dark:border-gray-700 pb-3 last:border-0">
                               <div className="flex-1">
                                 <div className="flex items-center gap-2 mb-1">
-                                  <span className={`text-[8px] font-bold px-2 py-0.5 rounded-full uppercase ${['投資','貯金','臨時収入'].includes(item.category) ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-300' : (item.category === '特別支出' || item.category === 'コントロール') ? 'bg-pink-100 text-pink-600 dark:bg-pink-900 dark:text-pink-300' : (item.category === '投資回収' ? 'bg-gray-200 text-gray-600' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300')}`}>{item.category}</span>
+                                  <span className={`text-[8px] font-bold px-2 py-0.5 rounded-full uppercase ${['投資','貯金','臨時収入'].includes(item.category) ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-300' : (item.category === '特別支出' || item.category === 'コントロール') ? 'bg-pink-100 text-pink-600 dark:bg-pink-900 dark:text-pink-300' : (item.category === '投資回収' ? 'bg-gray-200 text-gray-600' : (item.category === '積立取崩' ? 'bg-indigo-50 text-indigo-400' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300'))}`}>{item.category}</span>
                                   <span className="text-[10px] text-gray-400 font-mono">{new Date(item.date).toLocaleDateString()}</span>
                                 </div>
                                 <div className="flex items-baseline gap-2">
-                                    <span className={`text-sm font-mono font-bold ${item.category === '臨時収入' || item.category === '投資回収' ? 'text-green-500' : 'text-gray-700 dark:text-gray-200'}`}>
-                                      {item.category === '臨時収入' || item.category === '投資回収' ? '+' : ''}¥{item.amount.toLocaleString()}
+                                    <span className={`text-sm font-mono font-bold ${item.category === '臨時収入' || item.category === '投資回収' || item.category === '積立取崩' ? 'text-green-500' : 'text-gray-700 dark:text-gray-200'}`}>
+                                      {item.category === '臨時収入' || item.category === '投資回収' || item.category === '積立取崩' ? '+' : ''}¥{item.amount.toLocaleString()}
                                     </span>
                                     {item.type === 'transfer' && <span className="text-[8px] text-indigo-400 bg-indigo-50 dark:bg-indigo-900/50 px-1 rounded">振替</span>}
                                 </div>
