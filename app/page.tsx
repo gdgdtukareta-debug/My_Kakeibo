@@ -31,6 +31,49 @@ type BudgetMode = 'daily' | 'monthly';
 
 type Archives = { [key: string]: Transaction[] };
 
+// --- Tactics Mode 定義ガイドコンポーネント ---
+const TacticsGuide = () => (
+  <div className="bg-gray-50 dark:bg-gray-800/50 p-5 rounded-2xl text-xs text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 leading-relaxed space-y-6">
+    <div className="border-l-4 border-blue-500 pl-3">
+      <h4 className="font-bold text-blue-600 dark:text-blue-400 mb-1 text-sm flex items-center gap-2">
+        <span>🛡️</span> 1. 【義務】アンコントロール領域
+        <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded ml-auto">旧：生活費</span>
+      </h4>
+      <p className="font-bold text-gray-800 dark:text-gray-200 mb-1">
+        「自分の意思では金額も時期もコントロールできない出費」
+      </p>
+      <p className="mb-2 opacity-80">
+        払わないと社会生活や健康に即座に悪影響が出るもの。ここは予算をオーバーしても仕方がない「聖域」です。
+      </p>
+      <div className="bg-white dark:bg-gray-700/50 p-3 rounded-lg space-y-1">
+        <p><span className="font-bold text-blue-500">医療費・薬代</span>：風邪や歯医者はタイミングを選べません。</p>
+        <p><span className="font-bold text-blue-500">会費</span>：組織に属する以上、強制徴収です。</p>
+        <p><span className="font-bold text-blue-500">冠婚葬祭</span>：避けることができません。</p>
+        <p><span className="font-bold text-blue-500">サブスク・QOL維持</span>：自動引き落としや、毎日のコーヒーなど。</p>
+      </div>
+    </div>
+
+    <div className="border-l-4 border-pink-500 pl-3">
+      <h4 className="font-bold text-pink-600 dark:text-pink-400 mb-1 text-sm flex items-center gap-2">
+        <span>🎮</span> 2. 【裁量】コントロール領域
+        <span className="text-[10px] bg-pink-100 text-pink-600 px-1.5 py-0.5 rounded ml-auto">旧：特別費</span>
+      </h4>
+      <p className="font-bold text-gray-800 dark:text-gray-200 mb-1">
+        「買うか買わないか、あるいは金額を自分で決められる出費」
+      </p>
+      <p className="mb-2 opacity-80">
+        ここが調整弁です。「義務」の出費が多かった月は、ここを削って枠内に収めます。
+      </p>
+      <div className="bg-white dark:bg-gray-700/50 p-3 rounded-lg space-y-1">
+        <p><span className="font-bold text-pink-500">ジュースのストック</span>：「今月買うか、来月まで我慢して水道水にするか」は選べます。</p>
+        <p><span className="font-bold text-pink-500">家族との外食</span>：「行く・行かない」「スシローか公園か」を選べます。</p>
+        <p><span className="font-bold text-pink-500">ガジェット・PCパーツ</span>：完全に自分の意思です。</p>
+        <p><span className="font-bold text-pink-500">自分だけのおやつ</span>：我慢すれば0円にできます。</p>
+      </div>
+    </div>
+  </div>
+);
+
 // --- 使い方ガイドコンポーネント (共通化) ---
 const HelpGuide = () => (
   <div className="bg-gray-50 dark:bg-gray-800/50 p-5 rounded-2xl text-xs text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 leading-relaxed space-y-6">
@@ -129,12 +172,14 @@ export default function Home() {
   const [archives, setArchives] = useState<Archives>({});
   const [isCsvMode, setIsCsvMode] = useState(false);
   const [showAllHistory, setShowAllHistory] = useState(false); 
+  const [isTacticsMode, setIsTacticsMode] = useState(false); // New: Tactics Mode
   
   // --- モーダル用 State ---
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editIndex, setEditIndex] = useState<number | null>(null);
   const [editForm, setEditForm] = useState({ amount: 0, category: "", memo: "", date: "" });
-  const [isHelpModalOpen, setIsHelpModalOpen] = useState(false); // ヘルプガイド用
+  const [isHelpModalOpen, setIsHelpModalOpen] = useState(false); 
+  const [isTacticsGuideOpen, setIsTacticsGuideOpen] = useState(false); // New: Tactics Guide
 
   // --- テーマ & リセット用 ---
   const [theme, setTheme] = useState<ThemeOption>('system');
@@ -248,6 +293,7 @@ export default function Home() {
         setTheme(s.theme || 'system');
         setIsCsvMode(s.isCsvMode || false);
         currentNisa = s.nisaSettings || currentNisa;
+        setIsTacticsMode(s.isTacticsMode || false); // New
 
         // State復元
         setDailyBudget(currentBudget);
@@ -452,7 +498,7 @@ export default function Home() {
       
       const newSettings = { 
         dailyBudget, monthlyLivingBudget, livingBudgetMode, payday, monthlySavingTarget, monthlyInvestmentTarget, 
-        isCsvMode, theme, nisaSettings,
+        isCsvMode, theme, nisaSettings, isTacticsMode, // Update
         lastAccessedMonth: `${new Date().getFullYear()}-${new Date().getMonth()}` 
       };
       
@@ -601,7 +647,14 @@ export default function Home() {
         <div className="flex justify-between items-center mb-6 pt-2">
           <div>
             <h1 className="text-xl font-bold tracking-tight dark:text-white">3つの財布</h1>
-            <p className="text-[10px] text-gray-400 dark:text-gray-500 font-mono tracking-widest uppercase">Hi, {user.displayName?.split(" ")[0]}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-[10px] text-gray-400 dark:text-gray-500 font-mono tracking-widest uppercase">Hi, {user.displayName?.split(" ")[0]}</p>
+              {isTacticsMode ? (
+                <span className="text-[10px] bg-indigo-600 text-white px-1.5 py-0.5 rounded font-bold uppercase">Tactics Mode</span>
+              ) : (
+                <span className="text-[10px] bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded font-bold uppercase">Normal Mode</span>
+              )}
+            </div>
           </div>
           <div className="flex gap-2">
             <button onClick={handleLogout} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-full shadow-sm hover:bg-gray-50 transition-all text-xs font-bold text-gray-500">LOGOUT</button>
@@ -628,6 +681,23 @@ export default function Home() {
                         </button>
                     </div>
                     <HelpGuide />
+                </div>
+            </div>
+        )}
+
+        {/* Tactics Modeガイドモーダル */}
+        {isTacticsGuideOpen && (
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-full max-w-sm animation-fade-in border border-gray-100 dark:border-gray-700 max-h-[80vh] overflow-y-auto">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-sm font-bold text-gray-700 dark:text-gray-200 flex items-center gap-2">
+                           <span className="text-lg">⚔️</span> Tactics Mode 定義
+                        </h3>
+                        <button onClick={() => setIsTacticsGuideOpen(false)} className="text-gray-400 hover:text-gray-600">
+                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                    </div>
+                    <TacticsGuide />
                 </div>
             </div>
         )}
@@ -679,6 +749,26 @@ export default function Home() {
                <h2 className="text-white font-bold text-sm tracking-widest uppercase">Settings</h2>
              </div>
              <div className="p-6 space-y-8 max-h-[75vh] overflow-y-auto">
+               
+               {/* 0. Tactics Mode切替 */}
+               <section>
+                 <h3 className="text-xs font-bold text-gray-500 uppercase mb-3 border-b border-gray-100 dark:border-gray-700 pb-1">モード設定</h3>
+                 <div className="flex items-center justify-between bg-indigo-50 dark:bg-indigo-900/20 p-3 rounded-xl mb-2">
+                   <div>
+                     <span className="text-xs font-bold text-indigo-600 dark:text-indigo-300 block">Tactics Mode</span>
+                     <span className="text-[9px] text-gray-400 block">資金の性質（義務・裁量）で管理</span>
+                   </div>
+                   <div className="flex items-center gap-2">
+                     <input type="checkbox" checked={isTacticsMode} onChange={(e)=>setIsTacticsMode(e.target.checked)} className="toggle" />
+                   </div>
+                 </div>
+                 {isTacticsMode && (
+                   <button onClick={() => setIsTacticsGuideOpen(true)} className="w-full text-center text-[10px] text-blue-500 underline py-1">
+                     【定義を確認】義務・裁量の分類例
+                   </button>
+                 )}
+               </section>
+
                <section>
                  <h3 className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase mb-3 border-b border-blue-100 dark:border-blue-900 pb-1">基本予算設定</h3>
                  <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-xl mb-4">
@@ -743,15 +833,22 @@ export default function Home() {
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               <div className="bg-white dark:bg-gray-800 p-4 rounded-3xl shadow-sm border border-blue-50 dark:border-gray-700 relative overflow-hidden group">
                   <div className="absolute top-0 right-0 w-16 h-16 bg-blue-50 dark:bg-blue-900/20 rounded-bl-full -mr-4 -mt-4 transition-transform group-hover:scale-110"></div>
-                  <p className="text-[10px] font-bold text-blue-400 dark:text-blue-300 mb-1 uppercase tracking-wider relative z-10">生活費残高</p>
+                  <p className="text-[10px] font-bold text-blue-400 dark:text-blue-300 mb-1 uppercase tracking-wider relative z-10">
+                    {isTacticsMode ? "🛡️【義務】アンコントロール" : "生活費残高"}
+                  </p>
                   <p className={`text-2xl font-mono font-bold relative z-10 ${balance < 0 ? 'text-red-500' : 'text-gray-800 dark:text-white'}`}>¥{balance.toLocaleString()}</p>
-                  <p className="text-[8px] text-gray-400 dark:text-gray-500 mt-1 font-mono">{livingBudgetMode === 'daily' ? 'Daily Accumulation' : 'Monthly Budget'}</p>
+                  <p className="text-[8px] text-gray-400 dark:text-gray-500 mt-1 font-mono">
+                    {isTacticsMode ? "Uncontrollable Expenses" : (livingBudgetMode === 'daily' ? 'Daily Accumulation' : 'Monthly Budget')}
+                  </p>
               </div>
               
               <div className="bg-white dark:bg-gray-800 p-4 rounded-3xl shadow-sm border border-pink-50 dark:border-gray-700 relative overflow-hidden group">
                   <div className="absolute top-0 right-0 w-16 h-16 bg-pink-50 dark:bg-pink-900/20 rounded-bl-full -mr-4 -mt-4 transition-transform group-hover:scale-110"></div>
-                  <p className="text-[10px] font-bold text-pink-400 dark:text-pink-300 mb-1 uppercase tracking-wider relative z-10">特別費</p>
+                  <p className="text-[10px] font-bold text-pink-400 dark:text-pink-300 mb-1 uppercase tracking-wider relative z-10">
+                    {isTacticsMode ? "🎮【裁量】コントロール" : "特別費"}
+                  </p>
                   <p className="text-2xl font-mono font-bold text-gray-800 dark:text-white relative z-10">¥{savings.toLocaleString()}</p>
+                  {isTacticsMode && <p className="text-[8px] text-gray-400 dark:text-gray-500 mt-1 font-mono">Controllable Expenses</p>}
               </div>
 
               <div className="col-span-2 md:col-span-1 bg-gradient-to-r from-indigo-600 to-violet-600 p-5 rounded-3xl shadow-lg text-white relative overflow-hidden">
@@ -790,7 +887,7 @@ export default function Home() {
                                 ? (['投資','貯金','臨時収入'].includes(cat) ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200 dark:shadow-none' : cat === '特別支出' ? 'bg-pink-500 text-white shadow-md shadow-pink-200 dark:shadow-none' : 'bg-blue-600 text-white shadow-md shadow-blue-200 dark:shadow-none') 
                                 : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
                             }`}>
-                            {cat}
+                            {isTacticsMode && cat === '特別支出' ? '裁量(特別)' : cat}
                           </button>
                         ))}
                       </div>
@@ -829,7 +926,7 @@ export default function Home() {
                             <div key={index} className="flex items-start justify-between border-b border-gray-50 dark:border-gray-700 pb-3 last:border-0">
                               <div className="flex-1">
                                 <div className="flex items-center gap-2 mb-1">
-                                  <span className={`text-[8px] font-bold px-2 py-0.5 rounded-full uppercase ${['投資','貯金','臨時収入'].includes(item.category) ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-300' : item.category === '特別支出' ? 'bg-pink-100 text-pink-600 dark:bg-pink-900 dark:text-pink-300' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300'}`}>{item.category}</span>
+                                  <span className={`text-[8px] font-bold px-2 py-0.5 rounded-full uppercase ${['投資','貯金','臨時収入'].includes(item.category) ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-300' : item.category === '特別支出' ? 'bg-pink-100 text-pink-600 dark:bg-pink-900 dark:text-pink-300' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300'}`}>{isTacticsMode && item.category === '特別支出' ? '裁量(特別)' : item.category}</span>
                                   <span className="text-[10px] text-gray-400 font-mono">{new Date(item.date).toLocaleDateString()}</span>
                                 </div>
                                 <div className="flex items-baseline gap-2">
