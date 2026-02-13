@@ -74,11 +74,45 @@ const ControlContent = () => (
   </div>
 );
 
+const DefenseFundContent = () => (
+  <div className="border-l-4 border-indigo-500 pl-3">
+    <h4 className="font-bold text-indigo-600 dark:text-indigo-400 mb-1 text-sm flex items-center gap-2">
+      <span>🏰</span> 3. 生活防衛資金
+      <span className="text-[10px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded ml-auto">現金貯金</span>
+    </h4>
+    <p className="font-bold text-gray-800 dark:text-gray-200 mb-1">
+      「何かあっても生きていける心の安全装置」
+    </p>
+    <p className="mb-2 opacity-80">
+      病気やケガで働けなくなった時や、急な大型出費に備えるための現金です。
+      <br/>
+      <span className="text-[10px] opacity-70">※基準額 = (アンコントロール予算 + コントロール予算) / 月</span>
+    </p>
+    <div className="bg-white dark:bg-gray-700/50 p-3 rounded-lg space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="text-lg">🛡️</span>
+        <div>
+           <p className="font-bold text-indigo-500 text-xs">Lv.1 安心ライン (3ヶ月分)</p>
+           <p className="text-[10px] text-gray-500 dark:text-gray-400">一時的な休職や転職活動でも焦らずにいられる最低ライン。</p>
+        </div>
+      </div>
+      <div className="flex items-center gap-2 border-t border-gray-100 dark:border-gray-600 pt-2">
+        <span className="text-lg">🏰</span>
+        <div>
+           <p className="font-bold text-indigo-500 text-xs">Lv.2 盤石ライン (6ヶ月分)</p>
+           <p className="text-[10px] text-gray-500 dark:text-gray-400">長期療養や災害時でも生活水準を落とさず耐えられる鉄壁の守り。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
 // --- Tactics Guide コンポーネント (統合版) ---
-const TacticsGuide = ({ type }: { type: 'uncontrol' | 'control' | 'all' }) => (
+const TacticsGuide = ({ type }: { type: 'uncontrol' | 'control' | 'defense' | 'all' }) => (
   <div className="bg-gray-50 dark:bg-gray-800/50 p-5 rounded-2xl text-xs text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 leading-relaxed space-y-6">
     {(type === 'all' || type === 'uncontrol') && <UncontrolContent />}
     {(type === 'all' || type === 'control') && <ControlContent />}
+    {(type === 'all' || type === 'defense') && <DefenseFundContent />}
   </div>
 );
 
@@ -187,8 +221,8 @@ export default function Home() {
   const [editIndex, setEditIndex] = useState<number | null>(null);
   const [editForm, setEditForm] = useState({ amount: 0, category: "", memo: "", date: "" });
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false); 
-  // 変更: ガイドの種類を管理するState ('uncontrol' | 'control' | 'all' | null)
-  const [tacticsGuideType, setTacticsGuideType] = useState<'uncontrol' | 'control' | 'all' | null>(null);
+  // 変更: ガイドの種類を管理するState ('uncontrol' | 'control' | 'defense' | 'all' | null)
+  const [tacticsGuideType, setTacticsGuideType] = useState<'uncontrol' | 'control' | 'defense' | 'all' | null>(null);
 
   // --- テーマ & リセット用 ---
   const [theme, setTheme] = useState<ThemeOption>('system');
@@ -647,6 +681,12 @@ export default function Home() {
   // カテゴリリストの切り替え
   const currentCategories = isTacticsMode ? tacticsCategories : normalCategories;
 
+  // --- 生活防衛資金の計算 ---
+  const monthlyBaseExpense = (livingBudgetMode === 'daily' ? dailyBudget * 30 : monthlyLivingBudget) + monthlySavingTarget;
+  const defenseFundLine1 = monthlyBaseExpense * 3;
+  const defenseFundLine2 = monthlyBaseExpense * 6;
+  const defenseStatus = investCash >= defenseFundLine2 ? 2 : investCash >= defenseFundLine1 ? 1 : 0;
+
   if (authLoading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 text-gray-500 font-mono">Loading App...</div>;
 
   // --- ログイン画面 ---
@@ -912,7 +952,20 @@ export default function Home() {
                   <div className="relative z-10">
                       <div className="flex items-center justify-between mb-3 opacity-90">
                           <p className="text-[10px] font-bold uppercase tracking-widest">貯金と投資</p>
-                          <span className="text-[9px] bg-white/20 px-2 py-0.5 rounded backdrop-blur-sm">Total: ¥{(investCash + investStock).toLocaleString()}</span>
+                          <div className="flex items-center gap-2">
+                             {/* 生活防衛資金インジケーター */}
+                             {defenseStatus > 0 && (
+                               <div className="flex items-center gap-1 bg-white/20 px-2 py-0.5 rounded backdrop-blur-sm text-[9px] font-bold animate-pulse">
+                                 <span>{defenseStatus === 2 ? '🏰' : '🛡️'}</span>
+                                 <span>{defenseStatus === 2 ? '盤石' : '安心'}</span>
+                               </div>
+                             )}
+                             {isTacticsMode && (
+                                <button onClick={() => setTacticsGuideType('defense')} className="bg-white/20 hover:bg-white/30 p-1 rounded backdrop-blur-sm transition-colors">
+                                   <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                                </button>
+                             )}
+                          </div>
                       </div>
                       <div className="flex divide-x divide-white/20">
                           <div className="pr-4 flex-1">
@@ -923,6 +976,26 @@ export default function Home() {
                               <p className="text-[9px] opacity-70 mb-0.5">投資 (資産)</p>
                               <p className="text-xl font-mono font-bold">¥{investStock.toLocaleString()}</p>
                           </div>
+                      </div>
+                      
+                      {/* 生活防衛資金プログレスバー */}
+                      <div className="mt-3 pt-3 border-t border-white/10">
+                         <div className="flex justify-between text-[8px] opacity-70 mb-1 font-mono">
+                           <span>Life Defense Fund</span>
+                           <span>{Math.round((investCash / defenseFundLine2) * 100)}%</span>
+                         </div>
+                         <div className="w-full bg-black/20 rounded-full h-1.5 overflow-hidden relative">
+                           {/* 3ヶ月ライン */}
+                           <div className="absolute top-0 bottom-0 w-0.5 bg-white/50 z-20" style={{ left: '50%' }}></div>
+                           
+                           {/* 現在値バー */}
+                           <div className={`h-full rounded-full transition-all duration-1000 ${defenseStatus === 2 ? 'bg-green-400' : defenseStatus === 1 ? 'bg-yellow-400' : 'bg-white/50'}`} style={{ width: `${Math.min((investCash / defenseFundLine2) * 100, 100)}%` }}></div>
+                         </div>
+                         <div className="flex justify-between text-[7px] opacity-50 mt-1 font-mono">
+                           <span>0</span>
+                           <span className="text-center w-full -ml-4">3Mo</span>
+                           <span>6Mo</span>
+                         </div>
                       </div>
                   </div>
               </div>
