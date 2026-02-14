@@ -52,7 +52,7 @@ const UncontrolContent = () => (
       払わないと社会生活や健康に即座に悪影響が出るもの。ここは予算をオーバーしても仕方がない「聖域」です。
     </p>
     <div className="bg-white dark:bg-gray-700/50 p-3 rounded-lg space-y-1">
-      <p><span className="font-bold text-blue-500">医療費・薬代</span>：風邪や歯医者はタイミングを選べません。</p>
+      <p><span className="font-bold text-blue-500">医療費・薬代</span>：急な体調不良はタイミングを選べません。定期の通院も健康維持のためには欠かせません。</p>
       <p><span className="font-bold text-blue-500">会費</span>：組織に属する以上、強制徴収です。</p>
       <p><span className="font-bold text-blue-500">冠婚葬祭</span>：避けることができません。</p>
       <p><span className="font-bold text-blue-500">サブスク・QOL維持</span>：自動引き落としや、毎日のコーヒーなど。</p>
@@ -73,9 +73,9 @@ const ControlContent = () => (
       ここが調整弁です。「義務」の出費が多かった月は、ここを削って枠内に収めます。
     </p>
     <div className="bg-white dark:bg-gray-700/50 p-3 rounded-lg space-y-1">
-      <p><span className="font-bold text-pink-500">ジュースのストック</span>：「今月買うか、来月まで我慢して水道水にするか」は選べます。</p>
-      <p><span className="font-bold text-pink-500">家族との外食</span>：「行く・行かない」「スシローか公園か」を選べます。</p>
-      <p><span className="font-bold text-pink-500">ガジェット・PCパーツ</span>：完全に自分の意思です。</p>
+      <p><span className="font-bold text-pink-500">ジュース</span>：「今月買うか、来月まで我慢して水道水にするか」は選べます。</p>
+      <p><span className="font-bold text-pink-500">家族や友人との外食</span>：「行く・行かない」を選べます。</p>
+      <p><span className="font-bold text-pink-500">趣味のもの</span>：完全に自分の意思です。</p>
       <p><span className="font-bold text-pink-500">自分だけのおやつ</span>：我慢すれば0円にできます。</p>
     </div>
   </div>
