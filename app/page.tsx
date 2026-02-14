@@ -55,7 +55,7 @@ const UncontrolContent = () => (
       <p><span className="font-bold text-blue-500">医療費・薬代</span>：急な体調不良はタイミングを選べません。定期の通院も健康維持のためには欠かせません。</p>
       <p><span className="font-bold text-blue-500">会費</span>：組織に属する以上、強制徴収です。</p>
       <p><span className="font-bold text-blue-500">冠婚葬祭</span>：避けることができません。</p>
-      <p><span className="font-bold text-blue-500">サブスク・QOL維持</span>：自動引き落としや、毎日のコーヒーなど。</p>
+      <p><span className="font-bold text-blue-500">サブスク・QOL維持</span>：自動引き落としなど。</p>
     </div>
   </div>
 );
