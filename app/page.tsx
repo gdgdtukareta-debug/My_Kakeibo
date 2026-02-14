@@ -1170,7 +1170,7 @@ export default function Home() {
                   <div className="absolute top-0 right-0 w-16 h-16 bg-blue-50 dark:bg-blue-900/20 rounded-bl-full -mr-4 -mt-4 transition-transform group-hover:scale-110"></div>
                   <div className="relative z-10 flex justify-between items-start">
                      <p className="text-[10px] font-bold text-blue-400 dark:text-blue-300 mb-1 uppercase tracking-wider">
-                       {isTacticsMode ? "🛡️【義務】アンコントロール" : "生活費残高"}
+                       {isTacticsMode ? "🛡️【義務】アンコントロール" : "生活費"}
                      </p>
                      {isTacticsMode && (
                         // 変更: 'uncontrol' のみ表示
@@ -1189,7 +1189,7 @@ export default function Home() {
                   <div className="absolute top-0 right-0 w-16 h-16 bg-pink-50 dark:bg-pink-900/20 rounded-bl-full -mr-4 -mt-4 transition-transform group-hover:scale-110"></div>
                   <div className="relative z-10 flex justify-between items-start">
                      <p className="text-[10px] font-bold text-pink-400 dark:text-pink-300 mb-1 uppercase tracking-wider">
-                       {isTacticsMode ? "🎮【裁量】コントロール" : "特別費"}
+                       {isTacticsMode ? "🎮【裁量】コントロール" : "QOL費"}
                      </p>
                      {isTacticsMode && (
                         // 変更: 'control' のみ表示
