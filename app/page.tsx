@@ -226,6 +226,8 @@ export default function Home() {
   const [isCsvMode, setIsCsvMode] = useState(false);
   const [showAllHistory, setShowAllHistory] = useState(false); 
   const [isTacticsMode, setIsTacticsMode] = useState(false); // New: Tactics Mode
+  const [isUnlimitedArchive, setIsUnlimitedArchive] = useState(false); // New: 無制限アーカイブ
+  const [secretCode, setSecretCode] = useState(""); // New: 裏コード入力用
   
   // --- モーダル用 State ---
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -368,6 +370,7 @@ export default function Home() {
       // 新機能用変数
       let currentSurplusAction: SurplusAction = 'save';
       let currentTargetItem: TargetItem | null = null;
+      let currentUnlimitedArchive = false;
 
       if (docSnap.exists()) {
         const data = docSnap.data();
@@ -385,6 +388,7 @@ export default function Home() {
         setIsCsvMode(s.isCsvMode || false);
         currentNisa = s.nisaSettings || currentNisa;
         setIsTacticsMode(s.isTacticsMode || false); 
+        currentUnlimitedArchive = s.isUnlimitedArchive || false;
 
         // 欲しい物設定の復元
         currentSurplusAction = s.surplusAction || 'save';
@@ -401,6 +405,7 @@ export default function Home() {
         setNisaSettings(currentNisa);
         setSurplusAction(currentSurplusAction);
         setTargetItem(currentTargetItem);
+        setIsUnlimitedArchive(currentUnlimitedArchive);
 
         currentSavings = data.savings_balance || 0;
         currentInvestCash = data.invest_cash_balance ?? (data.investment_balance || 0);
@@ -449,7 +454,8 @@ export default function Home() {
 
         currentArchives[lastAccessedMonth] = rawHistory;
         const sortedKeys = Object.keys(currentArchives).sort();
-        if (sortedKeys.length > 6) {
+        // ★無制限モードが無効な場合のみ、古いデータを削除する
+        if (!currentUnlimitedArchive && sortedKeys.length > 6) {
           const newArchives: Archives = {};
           sortedKeys.slice(-6).forEach(key => newArchives[key] = currentArchives[key]);
           currentArchives = newArchives;
@@ -732,8 +738,8 @@ export default function Home() {
       
       const newSettings = { 
         dailyBudget, monthlyLivingBudget, livingBudgetMode, payday, monthlySavingTarget, monthlyInvestmentTarget, 
-        isCsvMode, theme, nisaSettings, isTacticsMode, 
-        surplusAction, targetItem, // Update
+        isCsvMode, theme, nisaSettings, isTacticsMode, isUnlimitedArchive, // 追加
+        surplusAction, targetItem,
         lastAccessedMonth: `${new Date().getFullYear()}-${new Date().getMonth()}` 
       };
       
@@ -1154,7 +1160,33 @@ export default function Home() {
                    <h3 className="text-xs font-bold text-gray-500 uppercase mb-3 border-b border-gray-100 dark:border-gray-700 pb-1">表示設定</h3>
                    <div className="flex gap-2 mb-4">{(['light', 'dark', 'system'] as ThemeOption[]).map(t => (<button key={t} onClick={()=>setTheme(t)} className={`flex-1 py-2 text-xs font-bold rounded-lg border ${theme===t ? 'bg-gray-800 text-white dark:bg-white dark:text-gray-900 border-transparent' : 'border-gray-200 dark:border-gray-600 text-gray-500'}`}>{t === 'light' ? 'ライト' : t === 'dark' ? 'ダーク' : '自動'}</button>))}</div>
                    <div className="flex items-center justify-between"><span className="text-xs text-gray-500">CSV出力機能</span><input type="checkbox" checked={isCsvMode} onChange={(e)=>setIsCsvMode(e.target.checked)} /></div>
-                   {isCsvMode && <button onClick={downloadCSV} className="mt-2 text-xs text-green-600 underline">過去データのダウンロード</button>}
+                   {isCsvMode && <button onClick={downloadCSV} className="mt-2 text-xs text-green-600 underline block mb-4">過去データのダウンロード</button>}
+                   
+                   {/* 開発者/裏メニュー */}
+                   <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
+                       <div className="flex justify-between items-center mb-2">
+                           <span className="text-[10px] text-gray-400 font-bold uppercase">高度な設定 (保存期間)</span>
+                           {isUnlimitedArchive ? (
+                               <span className="text-[10px] bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400 px-2 py-0.5 rounded font-bold">無制限モード有効</span>
+                           ) : (
+                               <span className="text-[10px] bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400 px-2 py-0.5 rounded font-bold">直近6ヶ月</span>
+                           )}
+                       </div>
+                       {!isUnlimitedArchive && (
+                           <div className="flex gap-2">
+                               <input type="password" placeholder="認証コード(4桁)" maxLength={4} className="flex-1 p-2 bg-gray-50 dark:bg-gray-700 rounded text-xs text-center tracking-widest font-mono" value={secretCode} onChange={(e) => setSecretCode(e.target.value)} />
+                               <button onClick={() => { 
+                                   if(secretCode === '0307') { 
+                                       setIsUnlimitedArchive(true); 
+                                       alert('無制限モードが解放されました。\n設定を保存してください。'); 
+                                   } else { 
+                                       alert('コードが違います'); 
+                                       setSecretCode(''); 
+                                   } 
+                               }} className="bg-gray-800 dark:bg-gray-600 text-white text-xs px-3 rounded shadow-sm hover:bg-gray-700">適用</button>
+                           </div>
+                       )}
+                   </div>
                </section>
                
                <button onClick={handleUpdateSettings} className="w-full bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-xl font-bold text-sm shadow-lg transition-transform active:scale-95">設定を保存して戻る</button>
