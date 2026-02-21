@@ -1147,7 +1147,7 @@ export default function Home() {
                            <div className="flex gap-2">
                                <input type="password" placeholder="認証コード(4桁)" maxLength={4} className="flex-1 p-2 bg-gray-50 dark:bg-gray-700 rounded text-xs text-center tracking-widest font-mono" value={secretCode} onChange={(e) => setSecretCode(e.target.value)} />
                                <button onClick={() => { 
-                                   if(secretCode === '0307') { 
+                                   if(secretCode === '0322') { 
                                        setIsUnlimitedArchive(true); 
                                        alert('無制限モードが解放されました。\n設定を保存してください。'); 
                                    } else { 
