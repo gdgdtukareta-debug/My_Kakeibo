@@ -225,16 +225,15 @@ export default function Home() {
   const [archives, setArchives] = useState<Archives>({});
   const [isCsvMode, setIsCsvMode] = useState(false);
   const [showAllHistory, setShowAllHistory] = useState(false); 
-  const [isTacticsMode, setIsTacticsMode] = useState(false); // New: Tactics Mode
-  const [isUnlimitedArchive, setIsUnlimitedArchive] = useState(false); // New: 無制限アーカイブ
-  const [secretCode, setSecretCode] = useState(""); // New: 裏コード入力用
+  const [isTacticsMode, setIsTacticsMode] = useState(false); 
+  const [isUnlimitedArchive, setIsUnlimitedArchive] = useState(false); 
+  const [secretCode, setSecretCode] = useState(""); 
   
   // --- モーダル用 State ---
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editIndex, setEditIndex] = useState<number | null>(null);
   const [editForm, setEditForm] = useState({ amount: 0, category: "", memo: "", date: "" });
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false); 
-  // 変更: ガイドの種類を管理するState ('uncontrol' | 'control' | 'defense' | 'all' | null)
   const [tacticsGuideType, setTacticsGuideType] = useState<'uncontrol' | 'control' | 'defense' | 'all' | null>(null);
   
   // 回収用モーダル
@@ -367,7 +366,6 @@ export default function Home() {
       let currentNisa = { enabled: false, amount: 0, day: 1, lastProcessedMonth: "" };
       let lastAccessedMonth = "";
 
-      // 新機能用変数
       let currentSurplusAction: SurplusAction = 'save';
       let currentTargetItem: TargetItem | null = null;
       let currentUnlimitedArchive = false;
@@ -390,11 +388,9 @@ export default function Home() {
         setIsTacticsMode(s.isTacticsMode || false); 
         currentUnlimitedArchive = s.isUnlimitedArchive || false;
 
-        // 欲しい物設定の復元
         currentSurplusAction = s.surplusAction || 'save';
         currentTargetItem = s.targetItem || null;
         
-        // State復元
         setDailyBudget(currentBudget);
         setMonthlyLivingBudget(currentMonthlyLiving);
         setLivingBudgetMode(currentMode);
@@ -414,6 +410,15 @@ export default function Home() {
         rawHistory = data.history || [];
         currentArchives = data.archives || {};
         currentSubs = data.subscriptions || [];
+
+        // --- データ容量の概算と警告 (Firestoreの上限は1MB = 約1,048,576 bytes) ---
+        if (currentUnlimitedArchive) {
+           const dataSize = new Blob([JSON.stringify(data)]).size;
+           const warningThreshold = 950 * 1024; // 約950KBを閾値とする
+           if (dataSize > warningThreshold) {
+               alert(`⚠️【データ容量警告】\n保存データが上限(1MB)に近づいています。(現在約${Math.round(dataSize/1024)}KB)\n\nこれ以上データが増えると保存に失敗する可能性があります。\n設定画面から「過去データのダウンロード(CSV)」を行い、古い履歴やアーカイブを手動で削除してください。`);
+           }
+        }
       } else {
         await setDoc(docRef, { savings_balance: 0, invest_cash_balance: 0, invest_stock_balance: 0, history: [], settings: {}, archives: [], subscriptions: [] });
       }
@@ -421,12 +426,12 @@ export default function Home() {
       const now = new Date();
       const currentMonthKey = `${now.getFullYear()}-${now.getMonth()}`;
 
-      // 1. 月替わり判定 (ロジック変更: 余剰金をターゲットへ)
+      // 1. 月替わり判定
       let isMonthChanged = false;
       if (lastAccessedMonth !== "" && lastAccessedMonth !== currentMonthKey) {
         
         const prevRegularSpent = rawHistory
-          .filter(item => !["特別支出", "投資", "貯金", "臨時収入", "コントロール", "投資回収", "積立取崩"].includes(item.category)) // アンコントロールも生活費扱い
+          .filter(item => !["特別支出", "投資", "貯金", "臨時収入", "コントロール", "投資回収", "積立取崩"].includes(item.category))
           .reduce((sum, item) => sum + item.amount, 0);
 
         let surplus = 0;
@@ -439,14 +444,12 @@ export default function Home() {
         }
 
         currentSavings += currentMonthlySaving;
-        // 定額積立は常にCashへ
         currentInvestCash += currentMonthlyInvestment;
 
         // 余剰金の分配
         if (surplus > 0) {
            if (currentSurplusAction === 'target' && currentTargetItem) {
                currentTargetItem.currentAmount += surplus;
-               // Target情報はsettings内に保存されるので後でupdate
            } else {
                currentInvestCash += surplus;
            }
@@ -502,7 +505,7 @@ export default function Home() {
           subscriptions: updatedSubs,
           "settings.lastAccessedMonth": currentMonthKey,
           "settings.nisaSettings": currentNisa,
-          "settings.targetItem": currentTargetItem // 更新されたターゲット情報を保存
+          "settings.targetItem": currentTargetItem
         });
       }
 
@@ -511,7 +514,7 @@ export default function Home() {
       setInvestStock(currentInvestStock);
       setSubscriptions(updatedSubs);
       setArchives(currentArchives);
-      setTargetItem(currentTargetItem); // State更新
+      setTargetItem(currentTargetItem);
       setTempResetValues({ special: currentSavings, investCash: currentInvestCash, investStock: currentInvestStock });
 
       const sortedHistory = [...rawHistory].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -529,18 +532,13 @@ export default function Home() {
         if (item.type !== 'transfer') {
             totalAll += item.amount;
             
-            // グラフ表示用に集計
             if (catTotals[item.category] !== undefined) {
                catTotals[item.category] += item.amount;
             }
-            // 投資回収・積立取崩などの特殊カテゴリ
             if (item.category === "投資回収" || item.category === "積立取崩") {
-                // 収入扱いのため、支出合計からは引く（あるいは無視）
                 totalAll -= item.amount;
             }
 
-            // 生活費残高（Regular Spent）の計算
-            // 特別費（コントロール）、投資、貯金、臨時収入、投資回収、積立取崩 以外はすべて生活費扱い
             if (!["特別支出", "コントロール", "投資", "貯金", "臨時収入", "投資回収", "積立取崩"].includes(item.category)) {
               totalRegular += item.amount;
             }
@@ -563,7 +561,6 @@ export default function Home() {
         labels: currentCategories,
         datasets: [{
           data: currentCategories.map(c => catTotals[c]),
-          // 変更: 固定カラーで表示
           backgroundColor: currentCategories.map(c => getCategoryColor(c)),
           borderWidth: 0,
         }]
@@ -600,8 +597,6 @@ export default function Home() {
         newInvestCash += amount;
         type = 'income';
       }
-      // 投資回収、積立取崩はUIから直接選択しない想定だが、もし選択されたら？
-      // 基本的にカテゴリリストに出てくるので処理は必要
       else if (category === "投資回収") {
           newInvestCash += amount;
           newInvestStock -= amount;
@@ -610,7 +605,6 @@ export default function Home() {
           newSavings += amount;
           type = 'income';
       }
-
 
       const recordDate = new Date(inputDate);
       const now = new Date();
@@ -628,7 +622,7 @@ export default function Home() {
     } catch (e) { alert("保存に失敗しました"); }
   };
 
-  // --- 回収処理 (New) ---
+  // --- 回収処理 ---
   const handleRecover = async () => {
       if (!user) return;
       const amount = Number(recoverAmount);
@@ -652,7 +646,7 @@ export default function Home() {
               category: "投資回収",
               memo: "資産から現金へ回収",
               date: now.toISOString(),
-              type: 'income' // 収入扱いだが、資産減・現金増の特殊振替
+              type: 'income'
           }];
 
           await updateDoc(docRef, {
@@ -669,7 +663,7 @@ export default function Home() {
       }
   };
   
-  // --- ターゲット達成後の購入処理 (New) ---
+  // --- ターゲット達成後の購入処理 ---
   const handlePurchaseTarget = async () => {
       if (!user || !targetItem) return;
       
@@ -679,9 +673,8 @@ export default function Home() {
       try {
           const docRef = doc(db, "users", user.uid);
           const now = new Date();
-          const purchaseAmount = targetItem.currentAmount; // 全額使用
+          const purchaseAmount = targetItem.currentAmount; 
           
-          // 1. 支出レコード (コントロール/特別支出)
           const expenseRecord: Transaction = {
               amount: purchaseAmount,
               category: isTacticsMode ? "コントロール" : "特別支出",
@@ -690,7 +683,6 @@ export default function Home() {
               type: 'expense'
           };
           
-          // 2. 収入レコード (積立取崩 -> 特別費への充当)
           const incomeRecord: Transaction = {
               amount: purchaseAmount,
               category: "積立取崩",
@@ -699,15 +691,8 @@ export default function Home() {
               type: 'income'
           };
           
-          // 残高計算: 
-          // 支出で savings が減る
-          // 収入(積立取崩) で savings が増える
-          // 結果、savings(特別費) の残高は変わらない（隔離資金を使ったため）
-          // ただし、隔離枠(targetItem)は消えるので、資産総額としては減る（正しい挙動）
-          
           const newHistory = [...history, expenseRecord, incomeRecord];
           
-          // 設定のリセット
           const newSettings = {
               ...((await getDoc(docRef)).data()?.settings || {}),
               targetItem: null
@@ -738,7 +723,7 @@ export default function Home() {
       
       const newSettings = { 
         dailyBudget, monthlyLivingBudget, livingBudgetMode, payday, monthlySavingTarget, monthlyInvestmentTarget, 
-        isCsvMode, theme, nisaSettings, isTacticsMode, isUnlimitedArchive, // 追加
+        isCsvMode, theme, nisaSettings, isTacticsMode, isUnlimitedArchive,
         surplusAction, targetItem,
         lastAccessedMonth: `${new Date().getFullYear()}-${new Date().getMonth()}` 
       };
@@ -761,7 +746,7 @@ export default function Home() {
     else if (item.category === "投資") { nic += item.amount; nis -= item.amount; }
     else if (item.category === "臨時収入") nic -= item.amount;
     else if (item.category === "投資回収") { nic -= item.amount; nis += item.amount; }
-    else if (item.category === "積立取崩") { ns -= item.amount; } // 逆操作
+    else if (item.category === "積立取崩") { ns -= item.amount; }
 
     const newH = history.filter((_, i) => i !== index);
     await updateDoc(doc(db, "users", user.uid), { history: newH, savings_balance: ns, invest_cash_balance: nic, invest_stock_balance: nis });
@@ -788,7 +773,6 @@ export default function Home() {
     try {
       const docRef = doc(db, "users", user.uid);
       
-      // 1. 旧データの影響を打ち消す
       const oldItem = history[editIndex];
       let ns = savings, nic = investCash, nis = investStock;
       
@@ -803,11 +787,10 @@ export default function Home() {
           else if (item.category === "積立取崩") { ns += amt * sign; }
       }
       
-      revert(oldItem, true); // 旧データを戻す
+      revert(oldItem, true);
 
-      // 2. 新データの影響を適用
       const newAmount = Number(editForm.amount);
-      const newItem = { ...oldItem, amount: newAmount, category: editForm.category }; // 型合わせ
+      const newItem = { ...oldItem, amount: newAmount, category: editForm.category }; 
       
       const apply = (cat: string, amt: number) => {
            if (cat === "特別支出" || cat === "コントロール") ns -= amt;
@@ -820,12 +803,10 @@ export default function Home() {
       
       apply(editForm.category, newAmount);
 
-      // 3. タイプ判定
       let newType: 'expense' | 'income' | 'transfer' = 'expense';
       if (editForm.category === "投資") newType = 'transfer';
       else if (editForm.category === "臨時収入" || editForm.category === "投資回収" || editForm.category === "積立取崩") newType = 'income';
 
-      // 4. 配列更新
       const newHistory = [...history];
       const updateDate = new Date(editForm.date);
       const now = new Date();
@@ -853,7 +834,6 @@ export default function Home() {
     } catch(e) { alert("更新に失敗しました"); }
   };
 
-
   const downloadCSV = () => {
     let allData = [...history, ...Object.values(archives).flat()];
     allData.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -866,23 +846,18 @@ export default function Home() {
     link.click();
   };
 
-  // --- 表示する履歴の制御 ---
   const displayHistory = showAllHistory ? history : history.slice(0, 5);
-  // カテゴリリストの切り替え
   const currentCategories = isTacticsMode ? tacticsCategories : normalCategories;
 
-  // --- 生活防衛資金の計算 ---
   const monthlyBaseExpense = (livingBudgetMode === 'daily' ? dailyBudget * 30 : monthlyLivingBudget) + monthlySavingTarget;
   const defenseFundLine1 = monthlyBaseExpense * 3;
   const defenseFundLine2 = monthlyBaseExpense * 6;
   const defenseStatus = investCash >= defenseFundLine2 ? 2 : investCash >= defenseFundLine1 ? 1 : 0;
   
-  // --- ターゲット達成判定 ---
   const isTargetReached = targetItem && targetItem.currentAmount >= targetItem.targetAmount;
 
   if (authLoading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 text-gray-500 font-mono">Loading App...</div>;
 
-  // --- ログイン画面 ---
   if (!user) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-white p-4">
@@ -897,7 +872,6 @@ export default function Home() {
             Googleでログイン
           </button>
           
-          {/* ログイン画面のガイド */}
           <div className="text-left border-t border-gray-100 dark:border-gray-700 pt-6 mt-6">
             <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 mb-3 tracking-widest uppercase">First Time Guide</h3>
             <HelpGuide />
@@ -916,8 +890,11 @@ export default function Home() {
         {/* Header */}
         <div className="flex justify-between items-center mb-6 pt-2">
           <div>
-            <h1 className="text-xl font-bold tracking-tight dark:text-white">3つの財布</h1>
-            <div className="flex items-center gap-2">
+            {/* 無制限モード時のタイトルデザイン変更 */}
+            <h1 className={`text-xl font-bold tracking-tight ${isUnlimitedArchive ? 'text-transparent bg-clip-text bg-gradient-to-r from-amber-500 to-pink-500 drop-shadow-sm' : 'dark:text-white'}`}>
+              3つの財布 {isUnlimitedArchive && <span className="text-lg text-amber-500 align-top">∞</span>}
+            </h1>
+            <div className="flex items-center gap-2 mt-1">
               <p className="text-[10px] text-gray-400 dark:text-gray-500 font-mono tracking-widest uppercase">Hi, {user.displayName?.split(" ")[0]}</p>
               {isTacticsMode ? (
                 <span className="text-[10px] bg-indigo-600 text-white px-1.5 py-0.5 rounded font-bold uppercase">Tactics Mode</span>
@@ -928,7 +905,6 @@ export default function Home() {
           </div>
           <div className="flex gap-2">
             <button onClick={handleLogout} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-full shadow-sm hover:bg-gray-50 transition-all text-xs font-bold text-gray-500">LOGOUT</button>
-            {/* 使い方ガイドボタン */}
             <button onClick={() => setIsHelpModalOpen(true)} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 w-8 h-8 rounded-full shadow-sm hover:bg-gray-50 transition-all flex items-center justify-center font-bold text-gray-500 text-xs">
                 ?
             </button>
@@ -938,7 +914,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* 使い方ガイドモーダル */}
+        {/* モーダル類 */}
         {isHelpModalOpen && (
             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                 <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-full max-w-sm animation-fade-in border border-gray-100 dark:border-gray-700 max-h-[80vh] overflow-y-auto">
@@ -955,7 +931,6 @@ export default function Home() {
             </div>
         )}
 
-        {/* Tactics Modeガイドモーダル */}
         {tacticsGuideType !== null && (
             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                 <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-full max-w-sm animation-fade-in border border-gray-100 dark:border-gray-700 max-h-[80vh] overflow-y-auto">
@@ -980,7 +955,6 @@ export default function Home() {
             </div>
         )}
 
-        {/* 回収用モーダル */}
         {isRecoverModalOpen && (
              <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                 <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-full max-w-sm animation-fade-in border border-gray-100 dark:border-gray-700">
@@ -1006,7 +980,6 @@ export default function Home() {
               </div>
         )}
 
-        {/* 編集モーダル */}
         {isEditModalOpen && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-full max-w-sm animation-fade-in border border-gray-100 dark:border-gray-700">
@@ -1054,7 +1027,6 @@ export default function Home() {
              </div>
              <div className="p-6 space-y-8 max-h-[75vh] overflow-y-auto">
                
-               {/* 0. Tactics Mode切替 */}
                <section>
                  <h3 className="text-xs font-bold text-gray-500 uppercase mb-3 border-b border-gray-100 dark:border-gray-700 pb-1">モード設定</h3>
                  <div className="flex items-center justify-between bg-indigo-50 dark:bg-indigo-900/20 p-3 rounded-xl mb-2">
@@ -1073,7 +1045,6 @@ export default function Home() {
                  )}
                </section>
 
-               {/* New: 余剰金の扱い設定 */}
                <section>
                  <h3 className="text-xs font-bold text-pink-500 uppercase mb-3 border-b border-pink-100 dark:border-pink-900 pb-1">余剰金の扱い</h3>
                  <div className="bg-pink-50 dark:bg-pink-900/20 p-3 rounded-xl mb-2">
@@ -1205,7 +1176,6 @@ export default function Home() {
                        {isTacticsMode ? "🛡️【義務】アンコントロール" : "生活費残高"}
                      </p>
                      {isTacticsMode && (
-                        // 変更: 'uncontrol' のみ表示
                         <button onClick={() => setTacticsGuideType('uncontrol')} className="text-blue-400 hover:text-blue-600 -mt-1 -mr-1 p-1">
                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                         </button>
@@ -1224,13 +1194,11 @@ export default function Home() {
                        {isTacticsMode ? "🎮【裁量】コントロール" : "特別費"}
                      </p>
                      {isTacticsMode && (
-                        // 変更: 'control' のみ表示
                         <button onClick={() => setTacticsGuideType('control')} className="text-pink-400 hover:text-pink-600 -mt-1 -mr-1 p-1">
                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                         </button>
                      )}
                   </div>
-                  {/* 修正: savings がマイナスの場合赤色にする */}
                   <p className={`text-2xl font-mono font-bold relative z-10 ${savings < 0 ? 'text-red-500' : 'text-gray-800 dark:text-white'}`}>¥{savings.toLocaleString()}</p>
                   {isTacticsMode && <p className="text-[8px] text-gray-400 dark:text-gray-500 mt-1 font-mono">Controllable Expenses</p>}
               </div>
@@ -1241,14 +1209,12 @@ export default function Home() {
                       <div className="flex items-center justify-between mb-3 opacity-90">
                           <p className="text-[10px] font-bold uppercase tracking-widest">貯金と投資</p>
                           <div className="flex items-center gap-2">
-                             {/* 生活防衛資金インジケーター */}
                              {defenseStatus > 0 && (
                                <div className="flex items-center gap-1 bg-white/20 px-2 py-0.5 rounded backdrop-blur-sm text-[9px] font-bold animate-pulse">
                                  <span>{defenseStatus === 2 ? '🏰' : '🛡️'}</span>
                                  <span>{defenseStatus === 2 ? '盤石' : '安心'}</span>
                                </div>
                              )}
-                             {/* 変更: 生活防衛資金ボタンは常時表示 */}
                              <button onClick={() => setTacticsGuideType('defense')} className="bg-white/20 hover:bg-white/30 p-1 rounded backdrop-blur-sm transition-colors">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                              </button>
@@ -1270,17 +1236,13 @@ export default function Home() {
                           </div>
                       </div>
                       
-                      {/* 生活防衛資金プログレスバー */}
                       <div className="mt-3 pt-3 border-t border-white/10">
                          <div className="flex justify-between text-[8px] opacity-70 mb-1 font-mono">
                            <span>Life Defense Fund</span>
                            <span>{Math.round((investCash / defenseFundLine2) * 100)}%</span>
                          </div>
                          <div className="w-full bg-black/20 rounded-full h-1.5 overflow-hidden relative">
-                           {/* 3ヶ月ライン */}
                            <div className="absolute top-0 bottom-0 w-0.5 bg-white/50 z-20" style={{ left: '50%' }}></div>
-                           
-                           {/* 現在値バー */}
                            <div className={`h-full rounded-full transition-all duration-1000 ${defenseStatus === 2 ? 'bg-green-400' : defenseStatus === 1 ? 'bg-yellow-400' : 'bg-white/50'}`} style={{ width: `${Math.min((investCash / defenseFundLine2) * 100, 100)}%` }}></div>
                          </div>
                          <div className="flex justify-between text-[7px] opacity-50 mt-1 font-mono">
@@ -1293,7 +1255,7 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Target Card (New) - 欲しい物リスト表示 */}
+            {/* Target Card */}
             {surplusAction === 'target' && targetItem && (
                <div className={`p-4 rounded-2xl shadow-sm text-white relative overflow-hidden animate-fade-in transition-all duration-500 ${isTargetReached ? 'bg-gradient-to-r from-yellow-400 to-orange-500 ring-4 ring-yellow-200 dark:ring-yellow-900' : 'bg-gradient-to-r from-pink-500 to-rose-500'}`}>
                   <div className="absolute opacity-10 top-[-10px] right-[-10px] w-24 h-24 bg-white rounded-full blur-xl"></div>
@@ -1322,7 +1284,7 @@ export default function Home() {
                </div>
             )}
 
-            {/* 2カラムレイアウト (PC画面用) */}
+            {/* 2カラムレイアウト */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 
                 {/* 左カラム: 入力 + 履歴 */}
@@ -1413,7 +1375,7 @@ export default function Home() {
                     </div>
                 </div>
 
-                {/* 右カラム: グラフ (PCでは常時表示) */}
+                {/* 右カラム: グラフ */}
                 <div>
                     {chartData && totalSpent > 0 && (
                       <div className="bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700 h-full flex flex-col justify-center">
