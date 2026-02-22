@@ -1,26 +1,12 @@
 "use client";
 import React, { useState, useEffect } from 'react';
-import { initializeApp } from "firebase/app";
-import { getFirestore, doc, getDoc, updateDoc, setDoc } from "firebase/firestore";
-import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User, signInWithCustomToken, signInAnonymously } from "firebase/auth";
+import { db, auth } from '../lib/firebase'; 
+import { doc, getDoc, updateDoc, setDoc } from "firebase/firestore";
+import { signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User } from "firebase/auth";
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
 import { Pie } from 'react-chartjs-2';
 
 ChartJS.register(ArcElement, Tooltip, Legend);
-
-// --- Firebase Initialization ---
-declare global {
-  var __firebase_config: string | undefined;
-  var __app_id: string | undefined;
-  var __initial_auth_token: string | undefined;
-}
-
-const configStr = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
-const firebaseConfig = JSON.parse(configStr);
-const app = Object.keys(firebaseConfig).length > 0 ? initializeApp(firebaseConfig) : null;
-const auth = app ? getAuth(app) : null;
-const db = app ? getFirestore(app) : null;
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
 // --- 型定義 ---
 type Transaction = {
@@ -258,23 +244,6 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!auth) {
-      setAuthLoading(false);
-      return;
-    }
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (e) {
-        console.error("Auth init error", e);
-      }
-    };
-    initAuth();
-
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setAuthLoading(false);
@@ -301,10 +270,6 @@ export default function Home() {
   }, [displayTactics]);
 
   const handleLogin = async () => {
-    if (!auth) {
-      alert("Firebaseの設定が完了していません");
-      return;
-    }
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
@@ -314,7 +279,6 @@ export default function Home() {
   };
 
   const handleLogout = async () => {
-    if (!auth) return;
     try {
       await signOut(auth);
       setHistory([]);
@@ -336,11 +300,11 @@ export default function Home() {
   };
 
   const loadData = async () => {
-    if (!user || !db) return;
+    if (!user) return;
     setLoading(true);
 
     try {
-      const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'data', 'main');
+      const docRef = doc(db, "users", user.uid);
       const docSnap = await getDoc(docRef);
       
       let currentBudget = 1000;
@@ -566,12 +530,12 @@ export default function Home() {
 
   // --- 支払い・入力処理 ---
   const handlePayment = async () => {
-    if (!user || !db) return;
+    if (!user) return;
     const amount = Number(expense);
     if (!amount || amount <= 0) return;
     
     try {
-      const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'data', 'main');
+      const docRef = doc(db, "users", user.uid);
       let newSavings = savings;
       let newInvestCash = investCash;
       let newInvestStock = investStock;
@@ -651,7 +615,7 @@ export default function Home() {
          return;
       }
       try {
-        const docRef = doc(db, 'artifacts', appId, 'users', user!.uid, 'data', 'main');
+        const docRef = doc(db, "users", user!.uid);
         const newSavings = savings + amount; // 特別費を増やす
         const newTargetItem = { ...targetItem, currentAmount: targetItem.currentAmount - amount };
 
@@ -681,12 +645,12 @@ export default function Home() {
 
   // --- 回収処理 ---
   const handleRecover = async () => {
-      if (!user || !db) return;
+      if (!user) return;
       const amount = Number(recoverAmount);
       if (!amount || amount <= 0 || amount > investStock) { alert("無効な金額です"); return; }
 
       try {
-          const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'data', 'main');
+          const docRef = doc(db, "users", user.uid);
           const newInvestStock = investStock - amount;
           const newInvestCash = investCash + amount;
           const newHistory = [...history, { amount: amount, category: "投資回収", memo: "資産から現金へ回収", date: new Date().toISOString(), type: 'income' }];
@@ -701,13 +665,13 @@ export default function Home() {
   
   // --- ターゲット達成後の全額購入処理 ---
   const handlePurchaseTarget = async () => {
-      if (!user || !targetItem || !db) return;
+      if (!user || !targetItem) return;
       
       const confirmPurchase = confirm(`「${targetItem.name || 'プール金'}」を購入処理しますか？\n\n支出記録と同時に、積み立てた資金(${targetItem.currentAmount.toLocaleString()}円)を特別費に充当します。`);
       if (!confirmPurchase) return;
 
       try {
-          const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'data', 'main');
+          const docRef = doc(db, "users", user.uid);
           const now = new Date();
           const purchaseAmount = targetItem.currentAmount; 
           
@@ -741,9 +705,9 @@ export default function Home() {
 
   // --- 設定更新 ---
   const handleUpdateSettings = async () => {
-    if (!user || !db) return;
+    if (!user) return;
     try {
-      const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'data', 'main');
+      const docRef = doc(db, "users", user.uid);
       const confirmAdd = confirm(`設定を更新しますか？\n(残高リセット値も適用されます)`);
       if (!confirmAdd) return;
       
@@ -764,7 +728,7 @@ export default function Home() {
 
   // --- 削除処理 ---
   const deleteItem = async (index: number) => {
-    if (!user || !db || !confirm("削除しますか？")) return;
+    if (!user || !confirm("削除しますか？")) return;
     const item = history[index];
     let ns = savings, nic = investCash, nis = investStock;
     if (item.category === "特別支出" || item.category === "コントロール") ns += item.amount;
@@ -775,7 +739,7 @@ export default function Home() {
     else if (item.category === "積立取崩") { ns -= item.amount; }
 
     const newH = history.filter((_, i) => i !== index);
-    await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'data', 'main'), { history: newH, savings_balance: ns, invest_cash_balance: nic, invest_stock_balance: nis });
+    await updateDoc(doc(db, "users", user.uid), { history: newH, savings_balance: ns, invest_cash_balance: nic, invest_stock_balance: nis });
     loadData();
   };
 
@@ -788,9 +752,9 @@ export default function Home() {
   };
 
   const handleUpdateTransaction = async () => {
-    if (editIndex === null || !user || !db) return;
+    if (editIndex === null || !user) return;
     try {
-      const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'data', 'main');
+      const docRef = doc(db, "users", user.uid);
       const oldItem = history[editIndex];
       let ns = savings, nic = investCash, nis = investStock;
       
@@ -907,7 +871,7 @@ export default function Home() {
             <button onClick={handleLogout} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-full shadow-sm hover:bg-gray-50 transition-all text-xs font-bold text-gray-500">LOGOUT</button>
             <button onClick={() => setIsHelpModalOpen(true)} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 w-8 h-8 rounded-full shadow-sm hover:bg-gray-50 transition-all flex items-center justify-center font-bold text-gray-500 text-xs">?</button>
             <button onClick={() => setIsSettingMode(!isSettingMode)} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-2 rounded-full shadow-sm hover:bg-gray-50 transition-all">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-600 dark:text-gray-300"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-600 dark:text-gray-300"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1-1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
             </button>
           </div>
         </div>
