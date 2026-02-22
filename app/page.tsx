@@ -1,12 +1,36 @@
 "use client";
 import React, { useState, useEffect } from 'react';
-import { db, auth } from '../lib/firebase'; 
-import { doc, getDoc, updateDoc, setDoc } from "firebase/firestore";
-import { signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User } from "firebase/auth";
+import { initializeApp } from "firebase/app";
+import { getFirestore, doc, getDoc, updateDoc, setDoc } from "firebase/firestore";
+import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User, signInWithCustomToken, signInAnonymously } from "firebase/auth";
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
 import { Pie } from 'react-chartjs-2';
 
 ChartJS.register(ArcElement, Tooltip, Legend);
+
+// --- Firebase Initialization ---
+declare global {
+  var __firebase_config: string | undefined;
+  var __app_id: string | undefined;
+  var __initial_auth_token: string | undefined;
+}
+
+const configStr = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
+const firebaseConfig = JSON.parse(configStr);
+const app = Object.keys(firebaseConfig).length > 0 ? initializeApp(firebaseConfig) : null;
+const auth = app ? getAuth(app) : null;
+const db = app ? getFirestore(app) : null;
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+// ローカルとCanvas両対応のパス取得関数
+const getUserDocRef = (uid: string) => {
+    if (!db) throw new Error("Database not initialized");
+    if (typeof __app_id !== 'undefined') {
+        return doc(db, 'artifacts', appId, 'users', uid, 'data', 'main');
+    } else {
+        return doc(db, 'users', uid);
+    }
+};
 
 // --- 型定義 ---
 type Transaction = {
@@ -244,6 +268,23 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    if (!auth) {
+      setAuthLoading(false);
+      return;
+    }
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (e) {
+        console.error("Auth init error", e);
+      }
+    };
+    initAuth();
+
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setAuthLoading(false);
@@ -270,6 +311,10 @@ export default function Home() {
   }, [displayTactics]);
 
   const handleLogin = async () => {
+    if (!auth) {
+      alert("Firebaseの設定が完了していません。\nローカル環境で実行する場合は、コード内のFirebaseConfigを設定してください。");
+      return;
+    }
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
@@ -279,6 +324,7 @@ export default function Home() {
   };
 
   const handleLogout = async () => {
+    if (!auth) return;
     try {
       await signOut(auth);
       setHistory([]);
@@ -304,7 +350,7 @@ export default function Home() {
     setLoading(true);
 
     try {
-      const docRef = doc(db, "users", user.uid);
+      const docRef = getUserDocRef(user.uid);
       const docSnap = await getDoc(docRef);
       
       let currentBudget = 1000;
@@ -535,7 +581,7 @@ export default function Home() {
     if (!amount || amount <= 0) return;
     
     try {
-      const docRef = doc(db, "users", user.uid);
+      const docRef = getUserDocRef(user.uid);
       let newSavings = savings;
       let newInvestCash = investCash;
       let newInvestStock = investStock;
@@ -615,7 +661,7 @@ export default function Home() {
          return;
       }
       try {
-        const docRef = doc(db, "users", user!.uid);
+        const docRef = getUserDocRef(user!.uid);
         const newSavings = savings + amount; // 特別費を増やす
         const newTargetItem = { ...targetItem, currentAmount: targetItem.currentAmount - amount };
 
@@ -650,7 +696,7 @@ export default function Home() {
       if (!amount || amount <= 0 || amount > investStock) { alert("無効な金額です"); return; }
 
       try {
-          const docRef = doc(db, "users", user.uid);
+          const docRef = getUserDocRef(user.uid);
           const newInvestStock = investStock - amount;
           const newInvestCash = investCash + amount;
           const newHistory = [...history, { amount: amount, category: "投資回収", memo: "資産から現金へ回収", date: new Date().toISOString(), type: 'income' }];
@@ -671,7 +717,7 @@ export default function Home() {
       if (!confirmPurchase) return;
 
       try {
-          const docRef = doc(db, "users", user.uid);
+          const docRef = getUserDocRef(user.uid);
           const now = new Date();
           const purchaseAmount = targetItem.currentAmount; 
           
@@ -707,7 +753,7 @@ export default function Home() {
   const handleUpdateSettings = async () => {
     if (!user) return;
     try {
-      const docRef = doc(db, "users", user.uid);
+      const docRef = getUserDocRef(user.uid);
       const confirmAdd = confirm(`設定を更新しますか？\n(残高リセット値も適用されます)`);
       if (!confirmAdd) return;
       
@@ -739,7 +785,7 @@ export default function Home() {
     else if (item.category === "積立取崩") { ns -= item.amount; }
 
     const newH = history.filter((_, i) => i !== index);
-    await updateDoc(doc(db, "users", user.uid), { history: newH, savings_balance: ns, invest_cash_balance: nic, invest_stock_balance: nis });
+    await updateDoc(getUserDocRef(user.uid), { history: newH, savings_balance: ns, invest_cash_balance: nic, invest_stock_balance: nis });
     loadData();
   };
 
@@ -754,7 +800,7 @@ export default function Home() {
   const handleUpdateTransaction = async () => {
     if (editIndex === null || !user) return;
     try {
-      const docRef = doc(db, "users", user.uid);
+      const docRef = getUserDocRef(user.uid);
       const oldItem = history[editIndex];
       let ns = savings, nic = investCash, nis = investStock;
       
