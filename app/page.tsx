@@ -242,9 +242,11 @@ export default function Home() {
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false); 
   const [tacticsGuideType, setTacticsGuideType] = useState<'uncontrol' | 'control' | 'defense' | 'all' | null>(null);
   
-  // 回収用モーダル
+  // 回収・取崩用モーダル
   const [isRecoverModalOpen, setIsRecoverModalOpen] = useState(false);
   const [recoverAmount, setRecoverAmount] = useState("");
+  const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState("");
 
   // --- テーマ & リセット用 ---
   const [theme, setTheme] = useState<ThemeOption>('system');
@@ -715,7 +717,7 @@ export default function Home() {
       }
   };
   
-  // --- ターゲット達成後の購入処理 ---
+  // --- ターゲット達成後の購入処理 (全額) ---
   const handlePurchaseTarget = async () => {
       if (!user || !targetItem) return;
       
@@ -761,6 +763,64 @@ export default function Home() {
 
       } catch(e) {
           alert("購入処理に失敗しました");
+      }
+  };
+
+  // --- ターゲットの指定金額取り崩し ---
+  const handlePartialWithdraw = async () => {
+      if (!user || !targetItem) return;
+      const amount = Number(withdrawAmount);
+      
+      if (!amount || amount <= 0) {
+          alert("有効な金額を入力してください");
+          return;
+      }
+      if (amount > targetItem.currentAmount) {
+          alert("現在の積立額を超えています");
+          return;
+      }
+
+      try {
+          const docRef = doc(db, "users", user.uid);
+          const now = new Date();
+          
+          const expenseRecord: Transaction = {
+              amount: amount,
+              category: (isTacticsMode && appMode === 'technical') ? "コントロール" : "特別支出",
+              memo: `プール金一部利用: ${targetItem.name}`,
+              date: now.toISOString(),
+              type: 'expense'
+          };
+          
+          const incomeRecord: Transaction = {
+              amount: amount,
+              category: "積立取崩",
+              memo: `プール金より一部充当: ${targetItem.name}`,
+              date: now.toISOString(),
+              type: 'income'
+          };
+          
+          const newHistory = [...history, expenseRecord, incomeRecord];
+          const newCurrentAmount = targetItem.currentAmount - amount;
+          
+          const newSettings = {
+              ...((await getDoc(docRef)).data()?.settings || {}),
+              targetItem: { ...targetItem, currentAmount: newCurrentAmount }
+          };
+
+          await updateDoc(docRef, {
+              history: newHistory,
+              settings: newSettings
+          });
+
+          setTargetItem({ ...targetItem, currentAmount: newCurrentAmount });
+          setIsWithdrawModalOpen(false);
+          setWithdrawAmount("");
+          loadData();
+          alert(`「${targetItem.name}」から ${amount.toLocaleString()}円 を取り崩しました。`);
+
+      } catch(e) {
+          alert("取り崩し処理に失敗しました");
       }
   };
 
@@ -1098,6 +1158,31 @@ export default function Home() {
                      <div className="flex gap-2 mt-4 pt-2 border-t border-gray-100 dark:border-gray-700">
                         <button onClick={()=>setIsRecoverModalOpen(false)} className="flex-1 py-2 text-xs font-bold text-gray-500 bg-gray-100 dark:bg-gray-700 dark:text-gray-300 rounded-lg">キャンセル</button>
                         <button onClick={handleRecover} className="flex-1 py-2 text-xs font-bold text-white bg-indigo-600 rounded-lg shadow-lg">回収実行</button>
+                     </div>
+                   </div>
+                </div>
+              </div>
+        )}
+
+        {isWithdrawModalOpen && targetItem && (
+             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-full max-w-sm animation-fade-in border border-gray-100 dark:border-gray-700">
+                   <h3 className="text-sm font-bold text-pink-600 dark:text-pink-400 mb-4 flex items-center gap-2">
+                     <span className="text-lg">💸</span> プール金の取り崩し
+                   </h3>
+                   <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+                     「{targetItem.name}」から指定した金額を取り崩して特別費に充当します。
+                     <br/><span className="text-[10px] opacity-70">※現在の積立額: ¥{targetItem.currentAmount.toLocaleString()}</span>
+                   </p>
+                   <div className="space-y-3">
+                     <div>
+                       <label className="text-[10px] text-gray-400 block mb-1">取崩金額</label>
+                       <input type="number" className="w-full p-2 bg-gray-50 dark:bg-gray-700 rounded text-sm font-mono"
+                         value={withdrawAmount} onChange={(e)=>setWithdrawAmount(e.target.value)} placeholder="0" />
+                     </div>
+                     <div className="flex gap-2 mt-4 pt-2 border-t border-gray-100 dark:border-gray-700">
+                        <button onClick={()=>setIsWithdrawModalOpen(false)} className="flex-1 py-2 text-xs font-bold text-gray-500 bg-gray-100 dark:bg-gray-700 dark:text-gray-300 rounded-lg">キャンセル</button>
+                        <button onClick={handlePartialWithdraw} className="flex-1 py-2 text-xs font-bold text-white bg-pink-500 rounded-lg shadow-lg">実行</button>
                      </div>
                    </div>
                 </div>
@@ -1444,9 +1529,14 @@ export default function Home() {
                       </div>
                       
                       {targetItem.currentAmount > 0 ? (
-                          <button onClick={handlePurchaseTarget} className="w-full mt-2 py-2 bg-white text-orange-600 font-bold text-xs rounded-lg shadow-md hover:bg-gray-100 transition-transform active:scale-95 animate-bounce">
-                              🎁 GET! (プール金を取り崩す)
-                          </button>
+                          <div className="flex gap-2 mt-3">
+                              <button onClick={() => setIsWithdrawModalOpen(true)} className="flex-1 py-2 bg-white/20 hover:bg-white/30 text-white font-bold text-xs rounded-lg shadow-sm transition-colors backdrop-blur-sm border border-white/20">
+                                  💸 一部取崩
+                              </button>
+                              <button onClick={handlePurchaseTarget} className="flex-[2] py-2 bg-white text-orange-600 font-bold text-xs rounded-lg shadow-md hover:bg-gray-100 transition-transform active:scale-95 animate-bounce">
+                                  🎁 GET! (全額)
+                              </button>
+                          </div>
                       ) : (
                           <p className="text-[9px] opacity-70 mt-1 text-right">余剰金・臨時収入から自動積立中</p>
                       )}
