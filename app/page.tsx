@@ -1,12 +1,26 @@
 "use client";
 import React, { useState, useEffect } from 'react';
-import { db, auth } from '../lib/firebase'; 
-import { doc, getDoc, updateDoc, setDoc } from "firebase/firestore";
-import { signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User } from "firebase/auth";
+import { initializeApp } from "firebase/app";
+import { getFirestore, doc, getDoc, updateDoc, setDoc } from "firebase/firestore";
+import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User, signInWithCustomToken, signInAnonymously } from "firebase/auth";
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
 import { Pie } from 'react-chartjs-2';
 
 ChartJS.register(ArcElement, Tooltip, Legend);
+
+// --- Firebase Initialization ---
+declare global {
+  var __firebase_config: string | undefined;
+  var __app_id: string | undefined;
+  var __initial_auth_token: string | undefined;
+}
+
+const configStr = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
+const firebaseConfig = JSON.parse(configStr);
+const app = Object.keys(firebaseConfig).length > 0 ? initializeApp(firebaseConfig) : null;
+const auth = app ? getAuth(app) : null;
+const db = app ? getFirestore(app) : null;
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
 // --- 型定義 ---
 type Transaction = {
@@ -32,13 +46,14 @@ type TargetItem = {
   currentAmount: number;
 };
 
+type AppMode = 'simple' | 'technical';
 type ThemeOption = 'light' | 'dark' | 'system';
 type BudgetMode = 'daily' | 'monthly';
 type SurplusAction = 'save' | 'target';
 
 type Archives = { [key: string]: Transaction[] };
 
-// --- Tactics Mode 定義コンテンツ (分割) ---
+// --- Tactics Mode 定義コンテンツ ---
 const UncontrolContent = () => (
   <div className="border-l-4 border-blue-500 pl-3">
     <h4 className="font-bold text-blue-600 dark:text-blue-400 mb-1 text-sm flex items-center gap-2">
@@ -52,7 +67,7 @@ const UncontrolContent = () => (
       払わないと社会生活や健康に即座に悪影響が出るもの。ここは予算をオーバーしても仕方がない「聖域」です。
     </p>
     <div className="bg-white dark:bg-gray-700/50 p-3 rounded-lg space-y-1">
-      <p><span className="font-bold text-blue-500">医療費・薬代</span>：急な体調不良はタイミングを選べません。定期の通院も健康維持のためには欠かせません。</p>
+      <p><span className="font-bold text-blue-500">医療費・薬代</span>：急な体調不良はタイミングを選べません。</p>
       <p><span className="font-bold text-blue-500">会費</span>：組織に属する以上、強制徴収です。</p>
       <p><span className="font-bold text-blue-500">冠婚葬祭</span>：避けることができません。</p>
       <p><span className="font-bold text-blue-500">サブスク・QOL維持</span>：自動引き落としなど。</p>
@@ -73,10 +88,9 @@ const ControlContent = () => (
       ここが調整弁です。「義務」の出費が多かった月は、ここを削って枠内に収めます。
     </p>
     <div className="bg-white dark:bg-gray-700/50 p-3 rounded-lg space-y-1">
-      <p><span className="font-bold text-pink-500">ジュース</span>：「今月買うか、来月まで我慢して水道水にするか」は選べます。</p>
+      <p><span className="font-bold text-pink-500">ジュース</span>：「今月買うか、我慢するか」は選べます。</p>
       <p><span className="font-bold text-pink-500">家族や友人との外食</span>：「行く・行かない」を選べます。</p>
       <p><span className="font-bold text-pink-500">趣味のもの</span>：完全に自分の意思です。</p>
-      <p><span className="font-bold text-pink-500">自分だけのおやつ</span>：我慢すれば0円にできます。</p>
     </div>
   </div>
 );
@@ -92,8 +106,6 @@ const DefenseFundContent = () => (
     </p>
     <p className="mb-2 opacity-80">
       病気やケガで働けなくなった時や、急な大型出費に備えるための現金です。
-      <br/>
-      <span className="text-[10px] opacity-70">※基準額 = (アンコントロール予算 + コントロール予算) / 月</span>
     </p>
     <div className="bg-white dark:bg-gray-700/50 p-3 rounded-lg space-y-2">
       <div className="flex items-center gap-2">
@@ -114,7 +126,6 @@ const DefenseFundContent = () => (
   </div>
 );
 
-// --- Tactics Guide コンポーネント (統合版) ---
 const TacticsGuide = ({ type }: { type: 'uncontrol' | 'control' | 'defense' | 'all' }) => (
   <div className="bg-gray-50 dark:bg-gray-800/50 p-5 rounded-2xl text-xs text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 leading-relaxed space-y-6">
     {(type === 'all' || type === 'uncontrol') && <UncontrolContent />}
@@ -123,11 +134,8 @@ const TacticsGuide = ({ type }: { type: 'uncontrol' | 'control' | 'defense' | 'a
   </div>
 );
 
-// --- 使い方ガイドコンポーネント (共通化) ---
 const HelpGuide = () => (
   <div className="bg-gray-50 dark:bg-gray-800/50 p-5 rounded-2xl text-xs text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 leading-relaxed space-y-6">
-    
-    {/* コンセプト */}
     <div>
       <h4 className="font-bold text-indigo-600 dark:text-indigo-400 mb-2 flex items-center gap-2 text-sm">
         <span className="text-lg">👛</span> 3つの財布とは？
@@ -141,8 +149,6 @@ const HelpGuide = () => (
         <li><span className="font-bold text-indigo-500">貯金・投資</span>：未来のために守り、増やすお金。</li>
       </ul>
     </div>
-
-    {/* ステップ1: 設定 */}
     <div>
       <h4 className="font-bold text-gray-700 dark:text-gray-200 mb-2 flex items-center gap-2">
         <span className="bg-gray-200 dark:bg-gray-700 w-5 h-5 rounded-full flex items-center justify-center text-[10px]">1</span>
@@ -151,12 +157,7 @@ const HelpGuide = () => (
       <p className="mb-1">
         右上の設定ボタン(歯車)を開き、<span className="font-bold">「1ヶ月の総収入」</span>を入力して<span className="bg-blue-600 text-white px-1 py-0.5 rounded text-[10px]">反映</span>を押してください。
       </p>
-      <p className="text-[10px] text-gray-400">
-        ※自動的に黄金比率（5:2:3）で各財布に予算が振り分けられます。
-      </p>
     </div>
-
-    {/* ステップ2: 入力 */}
     <div>
       <h4 className="font-bold text-gray-700 dark:text-gray-200 mb-2 flex items-center gap-2">
         <span className="bg-gray-200 dark:bg-gray-700 w-5 h-5 rounded-full flex items-center justify-center text-[10px]">2</span>
@@ -164,20 +165,6 @@ const HelpGuide = () => (
       </h4>
       <p>
         <span className="font-bold">「カテゴリ」</span>を選んで、金額を入力して<span className="bg-blue-600 text-white px-1 py-0.5 rounded text-[10px]">決定</span>を押すだけ。
-      </p>
-      <p className="mt-1 text-[10px] text-gray-400">
-        選んだカテゴリに合わせて、自動的に正しい財布（生活費や特別費）から残高が引かれます。
-      </p>
-    </div>
-
-    {/* ステップ3: 修正 */}
-    <div>
-      <h4 className="font-bold text-gray-700 dark:text-gray-200 mb-2 flex items-center gap-2">
-        <span className="bg-gray-200 dark:bg-gray-700 w-5 h-5 rounded-full flex items-center justify-center text-[10px]">3</span>
-        間違えたときは？
-      </h4>
-      <p>
-        履歴リストにある<span className="font-bold">「鉛筆マーク✏️」</span>で修正、<span className="font-bold">「×マーク」</span>で削除ができます。残高も自動で元に戻ります。
       </p>
     </div>
   </div>
@@ -187,6 +174,9 @@ export default function Home() {
   // --- Auth State ---
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+
+  // --- アプリモード State ---
+  const [appMode, setAppMode] = useState<AppMode>('simple');
 
   // --- 基本設定 State ---
   const [totalMonthlyIncome, setTotalMonthlyIncome] = useState(0);
@@ -198,9 +188,10 @@ export default function Home() {
   const [monthlySavingTarget, setMonthlySavingTarget] = useState(0); 
   const [monthlyInvestmentTarget, setMonthlyInvestmentTarget] = useState(0); 
 
-  // --- 欲しい物・余剰金設定 State ---
+  // --- 欲しい物・余剰金設定 State (Technical) ---
   const [surplusAction, setSurplusAction] = useState<SurplusAction>('save');
   const [targetItem, setTargetItem] = useState<TargetItem | null>(null);
+  const [windfallRatio, setWindfallRatio] = useState(50); // 臨時収入の投資割合
   
   // --- 資産 State ---
   const [balance, setBalance] = useState(0);            
@@ -236,43 +227,54 @@ export default function Home() {
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false); 
   const [tacticsGuideType, setTacticsGuideType] = useState<'uncontrol' | 'control' | 'defense' | 'all' | null>(null);
   
-  // 回収用モーダル
   const [isRecoverModalOpen, setIsRecoverModalOpen] = useState(false);
   const [recoverAmount, setRecoverAmount] = useState("");
+  
+  // プール金取崩し用
+  const [isPoolWithdrawModalOpen, setIsPoolWithdrawModalOpen] = useState(false);
+  const [poolWithdrawAmount, setPoolWithdrawAmount] = useState("");
 
   // --- テーマ & リセット用 ---
   const [theme, setTheme] = useState<ThemeOption>('system');
   const [tempResetValues, setTempResetValues] = useState({ special: 0, investCash: 0, investStock: 0 });
 
-  // 積立取崩を追加
   const normalCategories = ["食費", "日用品", "趣味", "仕事", "その他", "特別支出", "投資", "貯金", "臨時収入", "投資回収", "積立取崩"];
   const tacticsCategories = ["アンコントロール", "コントロール", "投資", "貯金", "臨時収入", "投資回収", "積立取崩"];
 
-  // --- グラフ用カラー設定 ---
   const categoryColors: Record<string, string> = {
-      "食費": "#f97316", // Orange
-      "日用品": "#06b6d4", // Cyan
-      "趣味": "#ec4899", // Pink
-      "仕事": "#64748b", // Slate
-      "その他": "#94a3b8", // Gray
-      "特別支出": "#ef4444", // Red
-      "アンコントロール": "#3b82f6", // Blue
-      "コントロール": "#ec4899", // Pink
-      "投資": "#8b5cf6", // Violet
-      "貯金": "#10b981", // Emerald
-      "臨時収入": "#fbbf24", // Amber (Gold)
-      "投資回収": "#6366f1", // Indigo (回収)
-      "積立取崩": "#a5b4fc", // Indigo Light
+      "食費": "#f97316", "日用品": "#06b6d4", "趣味": "#ec4899", "仕事": "#64748b", "その他": "#94a3b8",
+      "特別支出": "#ef4444", "アンコントロール": "#3b82f6", "コントロール": "#ec4899",
+      "投資": "#8b5cf6", "貯金": "#10b981", "臨時収入": "#fbbf24", "投資回収": "#6366f1", "積立取崩": "#a5b4fc",
   };
   const getCategoryColor = (cat: string) => categoryColors[cat] || "#cbd5e1";
 
-  // --- 初期化 & Auth監視 ---
+  // モードによる表示カテゴリの出し分け
+  const displayTactics = appMode === 'technical' && isTacticsMode;
+  const currentCategories = displayTactics ? tacticsCategories : normalCategories;
+
   useEffect(() => {
     const today = new Date();
     setInputDate(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`);
   }, []);
 
   useEffect(() => {
+    if (!auth) {
+      setAuthLoading(false);
+      return;
+    }
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (e) {
+        console.error("Auth init error", e);
+      }
+    };
+    initAuth();
+
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setAuthLoading(false);
@@ -290,73 +292,63 @@ export default function Home() {
     applyTheme(theme);
   }, [theme]);
 
-  // モード切り替え時に初期カテゴリを設定
   useEffect(() => {
-      if (isTacticsMode) {
+      if (displayTactics) {
           if (!tacticsCategories.includes(category)) setCategory("アンコントロール");
       } else {
           if (!normalCategories.includes(category)) setCategory("食費");
       }
-  }, [isTacticsMode]);
+  }, [displayTactics]);
 
-  // --- ログイン処理 ---
   const handleLogin = async () => {
+    if (!auth) {
+      alert("Firebaseの設定が完了していません");
+      return;
+    }
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
     } catch (error) {
-      console.error("Login Failed", error);
       alert("ログインに失敗しました");
     }
   };
 
   const handleLogout = async () => {
+    if (!auth) return;
     try {
       await signOut(auth);
       setHistory([]);
-      setBalance(0);
-      setSavings(0);
-      setInvestCash(0);
-      setInvestStock(0);
+      setBalance(0); setSavings(0); setInvestCash(0); setInvestStock(0);
     } catch (error) { console.error(error); }
   };
 
-  // --- 5:2:3 自動計算ロジック ---
   const calculateBudgetDistribution = () => {
-    if (totalMonthlyIncome <= 0) {
-      alert("総予算を入力してください");
-      return;
-    }
+    if (totalMonthlyIncome <= 0) { alert("総予算を入力してください"); return; }
     const living = Math.floor(totalMonthlyIncome * 0.5);
     const special = Math.floor(totalMonthlyIncome * 0.2);
     const invest = Math.floor(totalMonthlyIncome * 0.3);
 
-    if (livingBudgetMode === 'daily') {
-      setDailyBudget(Math.floor(living / 30));
-    } else {
-      setMonthlyLivingBudget(living);
-    }
+    if (livingBudgetMode === 'daily') setDailyBudget(Math.floor(living / 30));
+    else setMonthlyLivingBudget(living);
+    
     setMonthlySavingTarget(special);
     setMonthlyInvestmentTarget(invest);
   };
 
-  // --- データ読み込み & 自動処理 ---
   const loadData = async () => {
-    if (!user) return;
+    if (!user || !db) return;
     setLoading(true);
 
     try {
-      const docRef = doc(db, "users", user.uid);
+      const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'data', 'main');
       const docSnap = await getDoc(docRef);
       
       let currentBudget = 1000;
       let currentMonthlyLiving = 30000;
       let currentMode: BudgetMode = 'daily';
-      
       let currentPayday = 25;
       let currentMonthlySaving = 0;
       let currentMonthlyInvestment = 0;
-      
       let currentSavings = 0;
       let currentInvestCash = 0;
       let currentInvestStock = 0; 
@@ -366,9 +358,11 @@ export default function Home() {
       let currentNisa = { enabled: false, amount: 0, day: 1, lastProcessedMonth: "" };
       let lastAccessedMonth = "";
 
+      let currentAppMode: AppMode = 'simple';
       let currentSurplusAction: SurplusAction = 'save';
       let currentTargetItem: TargetItem | null = null;
       let currentUnlimitedArchive = false;
+      let currentWindfallRatio = 50;
 
       if (docSnap.exists()) {
         const data = docSnap.data();
@@ -377,7 +371,6 @@ export default function Home() {
         currentBudget = s.dailyBudget || 1000;
         currentMonthlyLiving = s.monthlyLivingBudget || 30000;
         currentMode = s.livingBudgetMode || 'daily';
-        
         currentPayday = s.payday || 25;
         currentMonthlySaving = s.monthlySavingTarget || 0;
         currentMonthlyInvestment = s.monthlyInvestmentTarget || 0;
@@ -388,35 +381,36 @@ export default function Home() {
         setIsTacticsMode(s.isTacticsMode || false); 
         currentUnlimitedArchive = s.isUnlimitedArchive || false;
 
+        currentAppMode = s.appMode || 'simple';
         currentSurplusAction = s.surplusAction || 'save';
         currentTargetItem = s.targetItem || null;
+        currentWindfallRatio = s.windfallRatio !== undefined ? s.windfallRatio : 50;
         
         setDailyBudget(currentBudget);
         setMonthlyLivingBudget(currentMonthlyLiving);
         setLivingBudgetMode(currentMode);
-        
         setPayday(currentPayday);
         setMonthlySavingTarget(currentMonthlySaving);
         setMonthlyInvestmentTarget(currentMonthlyInvestment);
         setNisaSettings(currentNisa);
+        setAppMode(currentAppMode);
         setSurplusAction(currentSurplusAction);
         setTargetItem(currentTargetItem);
+        setWindfallRatio(currentWindfallRatio);
         setIsUnlimitedArchive(currentUnlimitedArchive);
 
         currentSavings = data.savings_balance || 0;
         currentInvestCash = data.invest_cash_balance ?? (data.investment_balance || 0);
         currentInvestStock = data.invest_stock_balance || 0;
-        
         rawHistory = data.history || [];
         currentArchives = data.archives || {};
         currentSubs = data.subscriptions || [];
 
-        // --- データ容量の概算と警告 (Firestoreの上限は1MB = 約1,048,576 bytes) ---
         if (currentUnlimitedArchive) {
            const dataSize = new Blob([JSON.stringify(data)]).size;
-           const warningThreshold = 950 * 1024; // 約950KBを閾値とする
+           const warningThreshold = 950 * 1024;
            if (dataSize > warningThreshold) {
-               alert(`⚠️【データ容量警告】\n保存データが上限(1MB)に近づいています。(現在約${Math.round(dataSize/1024)}KB)\n\nこれ以上データが増えると保存に失敗する可能性があります。\n設定画面から「過去データのダウンロード(CSV)」を行い、古い履歴やアーカイブを手動で削除してください。`);
+               alert(`⚠️【データ容量警告】\n保存データが上限(1MB)に近づいています。(現在約${Math.round(dataSize/1024)}KB)\n\nCSVをダウンロードし、古い履歴を削除してください。`);
            }
         }
       } else {
@@ -425,11 +419,10 @@ export default function Home() {
 
       const now = new Date();
       const currentMonthKey = `${now.getFullYear()}-${now.getMonth()}`;
-
-      // 1. 月替わり判定
       let isMonthChanged = false;
+
+      // 月替わり処理
       if (lastAccessedMonth !== "" && lastAccessedMonth !== currentMonthKey) {
-        
         const prevRegularSpent = rawHistory
           .filter(item => !["特別支出", "投資", "貯金", "臨時収入", "コントロール", "投資回収", "積立取崩"].includes(item.category))
           .reduce((sum, item) => sum + item.amount, 0);
@@ -446,9 +439,9 @@ export default function Home() {
         currentSavings += currentMonthlySaving;
         currentInvestCash += currentMonthlyInvestment;
 
-        // 余剰金の分配
+        // 余剰金の分配 (Technical Mode かつ 設定ありの場合のみTargetへ)
         if (surplus > 0) {
-           if (currentSurplusAction === 'target' && currentTargetItem) {
+           if (currentAppMode === 'technical' && currentSurplusAction === 'target' && currentTargetItem) {
                currentTargetItem.currentAmount += surplus;
            } else {
                currentInvestCash += surplus;
@@ -457,7 +450,6 @@ export default function Home() {
 
         currentArchives[lastAccessedMonth] = rawHistory;
         const sortedKeys = Object.keys(currentArchives).sort();
-        // ★無制限モードが無効な場合のみ、古いデータを削除する
         if (!currentUnlimitedArchive && sortedKeys.length > 6) {
           const newArchives: Archives = {};
           sortedKeys.slice(-6).forEach(key => newArchives[key] = currentArchives[key]);
@@ -468,9 +460,10 @@ export default function Home() {
         isMonthChanged = true;
       }
 
-      // 2. サブスク
       let dataModified = false;
       const todayDate = now.getDate();
+      
+      // サブスク (Technical のみ発動とするか？一旦設定があれば動かす)
       const updatedSubs = currentSubs.map(sub => {
         const isDue = sub.lastPaidMonth !== currentMonthKey;
         const isTime = sub.payDay === "" || todayDate >= (sub.payDay as number);
@@ -485,7 +478,7 @@ export default function Home() {
         return sub;
       });
 
-      // 3. NISA
+      // NISA
       if (currentNisa.enabled && currentNisa.lastProcessedMonth !== currentMonthKey && todayDate >= currentNisa.day) {
         dataModified = true;
         currentInvestCash -= currentNisa.amount;
@@ -521,9 +514,9 @@ export default function Home() {
       setHistory(sortedHistory);
 
       // --- 残高計算 ---
-      const currentCategories = isTacticsMode ? tacticsCategories : normalCategories;
+      const activeCategories = (currentAppMode === 'technical' && s.isTacticsMode) ? tacticsCategories : normalCategories;
       const catTotals: { [key: string]: number } = {};
-      currentCategories.forEach(c => catTotals[c] = 0);
+      activeCategories.forEach(c => catTotals[c] = 0);
 
       let totalAll = 0;
       let totalRegular = 0;
@@ -531,14 +524,12 @@ export default function Home() {
       rawHistory.forEach(item => {
         if (item.type !== 'transfer') {
             totalAll += item.amount;
-            
             if (catTotals[item.category] !== undefined) {
                catTotals[item.category] += item.amount;
             }
             if (item.category === "投資回収" || item.category === "積立取崩") {
                 totalAll -= item.amount;
             }
-
             if (!["特別支出", "コントロール", "投資", "貯金", "臨時収入", "投資回収", "積立取崩"].includes(item.category)) {
               totalRegular += item.amount;
             }
@@ -558,10 +549,10 @@ export default function Home() {
       setBalance(currentBalance);
 
       setChartData({
-        labels: currentCategories,
+        labels: activeCategories,
         datasets: [{
-          data: currentCategories.map(c => catTotals[c]),
-          backgroundColor: currentCategories.map(c => getCategoryColor(c)),
+          data: activeCategories.map(c => catTotals[c]),
+          backgroundColor: activeCategories.map(c => getCategoryColor(c)),
           borderWidth: 0,
         }]
       });
@@ -573,17 +564,21 @@ export default function Home() {
     if (user) { loadData(); }
   }, [user]);
 
-  // --- 支払い処理 ---
+  // --- 支払い・入力処理 ---
   const handlePayment = async () => {
-    if (!user) return;
+    if (!user || !db) return;
     const amount = Number(expense);
     if (!amount || amount <= 0) return;
+    
     try {
-      const docRef = doc(db, "users", user.uid);
+      const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'data', 'main');
       let newSavings = savings;
       let newInvestCash = investCash;
       let newInvestStock = investStock;
       let type: 'expense' | 'income' | 'transfer' = 'expense';
+      
+      let poolAddAmount = 0;
+      let newTargetItem = targetItem;
 
       if (category === "特別支出" || category === "コントロール") {
         newSavings -= amount;
@@ -593,17 +588,31 @@ export default function Home() {
         newInvestCash -= amount;
         newInvestStock += amount;
         type = 'transfer';
-      } else if (category === "臨時収入") {
-        newInvestCash += amount;
-        type = 'income';
-      }
-      else if (category === "投資回収") {
+      } else if (category === "投資回収") {
           newInvestCash += amount;
           newInvestStock -= amount;
           type = 'income';
       } else if (category === "積立取崩") {
           newSavings += amount;
           type = 'income';
+      } else if (category === "臨時収入") {
+        type = 'income';
+        // Technical Mode で按分設定がある場合の処理
+        if (appMode === 'technical') {
+            const investPortion = Math.floor(amount * (windfallRatio / 100));
+            poolAddAmount = amount - investPortion;
+            
+            newInvestCash += investPortion;
+            
+            if (poolAddAmount > 0) {
+               newTargetItem = targetItem ? { ...targetItem } : { name: "プール金", targetAmount: 0, currentAmount: 0 };
+               newTargetItem.currentAmount += poolAddAmount;
+               setTargetItem(newTargetItem);
+            }
+        } else {
+            // Simple Mode は全額投資(現金)へ
+            newInvestCash += amount;
+        }
       }
 
       const recordDate = new Date(inputDate);
@@ -614,7 +623,19 @@ export default function Home() {
         amount, category, memo, date: recordDate.toISOString(), type
       }];
 
-      await updateDoc(docRef, { history: newHistory, savings_balance: newSavings, invest_cash_balance: newInvestCash, invest_stock_balance: newInvestStock });
+      const updatePayload: any = { 
+          history: newHistory, 
+          savings_balance: newSavings, 
+          invest_cash_balance: newInvestCash, 
+          invest_stock_balance: newInvestStock 
+      };
+
+      // TargetItemが更新された場合はペイロードに追加
+      if (poolAddAmount > 0 && newTargetItem) {
+          updatePayload["settings.targetItem"] = newTargetItem;
+      }
+
+      await updateDoc(docRef, updatePayload);
       
       setExpense("");
       setMemo("");
@@ -622,63 +643,78 @@ export default function Home() {
     } catch (e) { alert("保存に失敗しました"); }
   };
 
+  // --- プール金(Target枠)からの取り崩し ---
+  const handlePoolWithdraw = async () => {
+      const amount = Number(poolWithdrawAmount);
+      if (!amount || amount <= 0 || !targetItem || amount > targetItem.currentAmount) {
+         alert("有効な金額を入力してください（現在の積立額の範囲内）");
+         return;
+      }
+      try {
+        const docRef = doc(db, 'artifacts', appId, 'users', user!.uid, 'data', 'main');
+        const newSavings = savings + amount; // 特別費を増やす
+        const newTargetItem = { ...targetItem, currentAmount: targetItem.currentAmount - amount };
+
+        const incomeRecord: Transaction = {
+            amount: amount,
+            category: "積立取崩",
+            memo: "プール金(Target)から特別費へチャージ",
+            date: new Date().toISOString(),
+            type: 'income'
+        };
+
+        const newHistory = [...history, incomeRecord];
+
+        await updateDoc(docRef, {
+            history: newHistory,
+            savings_balance: newSavings,
+            "settings.targetItem": newTargetItem
+        });
+
+        setIsPoolWithdrawModalOpen(false);
+        setPoolWithdrawAmount("");
+        loadData();
+      } catch (e) {
+        alert("取崩処理に失敗しました");
+      }
+  };
+
   // --- 回収処理 ---
   const handleRecover = async () => {
-      if (!user) return;
+      if (!user || !db) return;
       const amount = Number(recoverAmount);
-      if (!amount || amount <= 0) {
-          alert("有効な金額を入力してください");
-          return;
-      }
-      if (amount > investStock) {
-          alert("資産残高を超えています");
-          return;
-      }
+      if (!amount || amount <= 0 || amount > investStock) { alert("無効な金額です"); return; }
 
       try {
-          const docRef = doc(db, "users", user.uid);
+          const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'data', 'main');
           const newInvestStock = investStock - amount;
           const newInvestCash = investCash + amount;
-          const now = new Date();
-          
-          const newHistory = [...history, {
-              amount: amount,
-              category: "投資回収",
-              memo: "資産から現金へ回収",
-              date: now.toISOString(),
-              type: 'income'
-          }];
+          const newHistory = [...history, { amount: amount, category: "投資回収", memo: "資産から現金へ回収", date: new Date().toISOString(), type: 'income' }];
 
-          await updateDoc(docRef, {
-              invest_stock_balance: newInvestStock,
-              invest_cash_balance: newInvestCash,
-              history: newHistory
-          });
+          await updateDoc(docRef, { invest_stock_balance: newInvestStock, invest_cash_balance: newInvestCash, history: newHistory });
 
           setIsRecoverModalOpen(false);
           setRecoverAmount("");
           loadData();
-      } catch (e) {
-          alert("回収処理に失敗しました");
-      }
+      } catch (e) { alert("回収処理に失敗しました"); }
   };
   
-  // --- ターゲット達成後の購入処理 ---
+  // --- ターゲット達成後の全額購入処理 ---
   const handlePurchaseTarget = async () => {
-      if (!user || !targetItem) return;
+      if (!user || !targetItem || !db) return;
       
-      const confirmPurchase = confirm(`「${targetItem.name}」を購入処理しますか？\n\n支出記録と同時に、積み立てた資金(${targetItem.currentAmount.toLocaleString()}円)を特別費に充当し、ターゲット設定をリセットします。`);
+      const confirmPurchase = confirm(`「${targetItem.name || 'プール金'}」を購入処理しますか？\n\n支出記録と同時に、積み立てた資金(${targetItem.currentAmount.toLocaleString()}円)を特別費に充当します。`);
       if (!confirmPurchase) return;
 
       try {
-          const docRef = doc(db, "users", user.uid);
+          const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'data', 'main');
           const now = new Date();
           const purchaseAmount = targetItem.currentAmount; 
           
           const expenseRecord: Transaction = {
               amount: purchaseAmount,
-              category: isTacticsMode ? "コントロール" : "特別支出",
-              memo: `Target達成: ${targetItem.name}`,
+              category: displayTactics ? "コントロール" : "特別支出",
+              memo: `Target達成: ${targetItem.name || 'プール金'}`,
               date: now.toISOString(),
               type: 'expense'
           };
@@ -686,42 +722,33 @@ export default function Home() {
           const incomeRecord: Transaction = {
               amount: purchaseAmount,
               category: "積立取崩",
-              memo: `Target積立より充当: ${targetItem.name}`,
+              memo: `Target積立より充当: ${targetItem.name || 'プール金'}`,
               date: now.toISOString(),
               type: 'income'
           };
           
           const newHistory = [...history, expenseRecord, incomeRecord];
-          
-          const newSettings = {
-              ...((await getDoc(docRef)).data()?.settings || {}),
-              targetItem: null
-          };
+          const newSettings = { ...((await getDoc(docRef)).data()?.settings || {}), targetItem: null };
 
-          await updateDoc(docRef, {
-              history: newHistory,
-              settings: newSettings
-          });
+          await updateDoc(docRef, { history: newHistory, settings: newSettings });
 
           setTargetItem(null);
           loadData();
-          alert(`おめでとうございます！🎉\n「${targetItem.name}」の購入を記録しました。`);
+          alert(`おめでとうございます！🎉\n購入を記録しました。`);
 
-      } catch(e) {
-          alert("購入処理に失敗しました");
-      }
+      } catch(e) { alert("購入処理に失敗しました"); }
   };
-
 
   // --- 設定更新 ---
   const handleUpdateSettings = async () => {
-    if (!user) return;
+    if (!user || !db) return;
     try {
-      const docRef = doc(db, "users", user.uid);
+      const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'data', 'main');
       const confirmAdd = confirm(`設定を更新しますか？\n(残高リセット値も適用されます)`);
       if (!confirmAdd) return;
       
       const newSettings = { 
+        appMode, windfallRatio, // 新規追加
         dailyBudget, monthlyLivingBudget, livingBudgetMode, payday, monthlySavingTarget, monthlyInvestmentTarget, 
         isCsvMode, theme, nisaSettings, isTacticsMode, isUnlimitedArchive,
         surplusAction, targetItem,
@@ -737,8 +764,7 @@ export default function Home() {
 
   // --- 削除処理 ---
   const deleteItem = async (index: number) => {
-    if (!user) return;
-    if (!confirm("削除しますか？")) return;
+    if (!user || !db || !confirm("削除しますか？")) return;
     const item = history[index];
     let ns = savings, nic = investCash, nis = investStock;
     if (item.category === "特別支出" || item.category === "コントロール") ns += item.amount;
@@ -749,30 +775,22 @@ export default function Home() {
     else if (item.category === "積立取崩") { ns -= item.amount; }
 
     const newH = history.filter((_, i) => i !== index);
-    await updateDoc(doc(db, "users", user.uid), { history: newH, savings_balance: ns, invest_cash_balance: nic, invest_stock_balance: nis });
+    await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'data', 'main'), { history: newH, savings_balance: ns, invest_cash_balance: nic, invest_stock_balance: nis });
     loadData();
   };
 
-  // --- 編集モード開始 ---
+  // --- 編集モード ---
   const startEdit = (index: number) => {
     const item = history[index];
     setEditIndex(index);
-    setEditForm({
-      amount: item.amount,
-      category: item.category,
-      memo: item.memo,
-      date: new Date(item.date).toISOString().split('T')[0] // YYYY-MM-DD
-    });
+    setEditForm({ amount: item.amount, category: item.category, memo: item.memo, date: new Date(item.date).toISOString().split('T')[0] });
     setIsEditModalOpen(true);
   };
 
-  // --- 編集保存処理 ---
   const handleUpdateTransaction = async () => {
-    if (editIndex === null || !user) return;
-    
+    if (editIndex === null || !user || !db) return;
     try {
-      const docRef = doc(db, "users", user.uid);
-      
+      const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'data', 'main');
       const oldItem = history[editIndex];
       let ns = savings, nic = investCash, nis = investStock;
       
@@ -786,12 +804,9 @@ export default function Home() {
           else if (item.category === "投資回収") { nic -= amt * sign; nis += amt * sign; }
           else if (item.category === "積立取崩") { ns += amt * sign; }
       }
-      
       revert(oldItem, true);
 
       const newAmount = Number(editForm.amount);
-      const newItem = { ...oldItem, amount: newAmount, category: editForm.category }; 
-      
       const apply = (cat: string, amt: number) => {
            if (cat === "特別支出" || cat === "コントロール") ns -= amt;
            else if (cat === "貯金") nic -= amt;
@@ -800,7 +815,6 @@ export default function Home() {
            else if (cat === "投資回収") { nic += amt; nis -= amt; }
            else if (cat === "積立取崩") { ns += amt; }
       }
-      
       apply(editForm.category, newAmount);
 
       let newType: 'expense' | 'income' | 'transfer' = 'expense';
@@ -812,25 +826,13 @@ export default function Home() {
       const now = new Date();
       updateDate.setHours(now.getHours(), now.getMinutes());
 
-      newHistory[editIndex] = {
-        amount: newAmount,
-        category: editForm.category,
-        memo: editForm.memo,
-        date: updateDate.toISOString(),
-        type: newType
-      };
+      newHistory[editIndex] = { amount: newAmount, category: editForm.category, memo: editForm.memo, date: updateDate.toISOString(), type: newType };
 
-      await updateDoc(docRef, { 
-        history: newHistory, 
-        savings_balance: ns, 
-        invest_cash_balance: nic, 
-        invest_stock_balance: nis 
-      });
+      await updateDoc(docRef, { history: newHistory, savings_balance: ns, invest_cash_balance: nic, invest_stock_balance: nis });
 
       setIsEditModalOpen(false);
       setEditIndex(null);
       loadData();
-
     } catch(e) { alert("更新に失敗しました"); }
   };
 
@@ -846,15 +848,14 @@ export default function Home() {
     link.click();
   };
 
-  const displayHistory = showAllHistory ? history : history.slice(0, 5);
-  const currentCategories = isTacticsMode ? tacticsCategories : normalCategories;
+  const displayHistoryList = showAllHistory ? history : history.slice(0, 5);
 
   const monthlyBaseExpense = (livingBudgetMode === 'daily' ? dailyBudget * 30 : monthlyLivingBudget) + monthlySavingTarget;
   const defenseFundLine1 = monthlyBaseExpense * 3;
   const defenseFundLine2 = monthlyBaseExpense * 6;
   const defenseStatus = investCash >= defenseFundLine2 ? 2 : investCash >= defenseFundLine1 ? 1 : 0;
   
-  const isTargetReached = targetItem && targetItem.currentAmount >= targetItem.targetAmount;
+  const isTargetReached = targetItem && targetItem.targetAmount > 0 && targetItem.currentAmount >= targetItem.targetAmount;
 
   if (authLoading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 text-gray-500 font-mono">Loading App...</div>;
 
@@ -866,12 +867,10 @@ export default function Home() {
             <h1 className="text-2xl font-bold tracking-tight mb-1">3つの財布</h1>
             <p className="text-xs text-gray-400 font-mono tracking-widest uppercase">Financial Partner</p>
           </div>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-8">ログインして家計簿データを同期しましょう。</p>
           <button onClick={handleLogin} className="w-full flex items-center justify-center gap-3 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 text-gray-700 dark:text-white py-3 px-4 rounded-xl transition-all shadow-sm font-bold text-sm mb-8">
             <svg className="w-5 h-5" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" /><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" /><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" /><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" /></svg>
             Googleでログイン
           </button>
-          
           <div className="text-left border-t border-gray-100 dark:border-gray-700 pt-6 mt-6">
             <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 mb-3 tracking-widest uppercase">First Time Guide</h3>
             <HelpGuide />
@@ -890,24 +889,23 @@ export default function Home() {
         {/* Header */}
         <div className="flex justify-between items-center mb-6 pt-2">
           <div>
-            {/* 無制限モード時のタイトルデザイン変更 */}
-            <h1 className={`text-xl font-bold tracking-tight ${isUnlimitedArchive ? 'text-transparent bg-clip-text bg-gradient-to-r from-amber-500 to-pink-500 drop-shadow-sm' : 'dark:text-white'}`}>
-              3つの財布 {isUnlimitedArchive && <span className="text-lg text-amber-500 align-top">∞</span>}
+            <h1 className={`text-xl font-bold tracking-tight ${isUnlimitedArchive && appMode === 'technical' ? 'text-transparent bg-clip-text bg-gradient-to-r from-amber-500 to-pink-500 drop-shadow-sm' : 'dark:text-white'}`}>
+              3つの財布 {isUnlimitedArchive && appMode === 'technical' && <span className="text-lg text-amber-500 align-top">∞</span>}
             </h1>
             <div className="flex items-center gap-2 mt-1">
               <p className="text-[10px] text-gray-400 dark:text-gray-500 font-mono tracking-widest uppercase">Hi, {user.displayName?.split(" ")[0]}</p>
-              {isTacticsMode ? (
+              {appMode === 'simple' ? (
+                <span className="text-[10px] bg-green-100 text-green-600 dark:bg-green-900 dark:text-green-300 px-1.5 py-0.5 rounded font-bold uppercase">Simple Mode</span>
+              ) : displayTactics ? (
                 <span className="text-[10px] bg-indigo-600 text-white px-1.5 py-0.5 rounded font-bold uppercase">Tactics Mode</span>
               ) : (
-                <span className="text-[10px] bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded font-bold uppercase">Normal Mode</span>
+                <span className="text-[10px] bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded font-bold uppercase">Technical Mode</span>
               )}
             </div>
           </div>
           <div className="flex gap-2">
             <button onClick={handleLogout} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-full shadow-sm hover:bg-gray-50 transition-all text-xs font-bold text-gray-500">LOGOUT</button>
-            <button onClick={() => setIsHelpModalOpen(true)} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 w-8 h-8 rounded-full shadow-sm hover:bg-gray-50 transition-all flex items-center justify-center font-bold text-gray-500 text-xs">
-                ?
-            </button>
+            <button onClick={() => setIsHelpModalOpen(true)} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 w-8 h-8 rounded-full shadow-sm hover:bg-gray-50 transition-all flex items-center justify-center font-bold text-gray-500 text-xs">?</button>
             <button onClick={() => setIsSettingMode(!isSettingMode)} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-2 rounded-full shadow-sm hover:bg-gray-50 transition-all">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-600 dark:text-gray-300"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
             </button>
@@ -919,12 +917,8 @@ export default function Home() {
             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                 <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-full max-w-sm animation-fade-in border border-gray-100 dark:border-gray-700 max-h-[80vh] overflow-y-auto">
                     <div className="flex justify-between items-center mb-4">
-                        <h3 className="text-sm font-bold text-gray-700 dark:text-gray-200 flex items-center gap-2">
-                           <span className="text-lg">📖</span> 使い方ガイド
-                        </h3>
-                        <button onClick={() => setIsHelpModalOpen(false)} className="text-gray-400 hover:text-gray-600">
-                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                        </button>
+                        <h3 className="text-sm font-bold text-gray-700 dark:text-gray-200 flex items-center gap-2"><span className="text-lg">📖</span> 使い方ガイド</h3>
+                        <button onClick={() => setIsHelpModalOpen(false)} className="text-gray-400 hover:text-gray-600"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
                     </div>
                     <HelpGuide />
                 </div>
@@ -936,23 +930,39 @@ export default function Home() {
                 <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-full max-w-sm animation-fade-in border border-gray-100 dark:border-gray-700 max-h-[80vh] overflow-y-auto">
                     <div className="flex justify-between items-center mb-4">
                         <h3 className="text-sm font-bold text-gray-700 dark:text-gray-200 flex items-center gap-2">
-                           {tacticsGuideType === 'defense' ? (
-                             <>
-                               <span className="text-lg">🏰</span> 生活防衛資金
-                             </>
-                           ) : (
-                             <>
-                               <span className="text-lg">⚔️</span> Tactics Mode 定義
-                             </>
-                           )}
+                           {tacticsGuideType === 'defense' ? <><span className="text-lg">🏰</span> 生活防衛資金</> : <><span className="text-lg">⚔️</span> Tactics Mode 定義</>}
                         </h3>
-                        <button onClick={() => setTacticsGuideType(null)} className="text-gray-400 hover:text-gray-600">
-                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                        </button>
+                        <button onClick={() => setTacticsGuideType(null)} className="text-gray-400 hover:text-gray-600"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
                     </div>
                     <TacticsGuide type={tacticsGuideType} />
                 </div>
             </div>
+        )}
+
+        {/* プール金取崩しモーダル */}
+        {isPoolWithdrawModalOpen && (
+             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-full max-w-sm animation-fade-in border border-gray-100 dark:border-gray-700">
+                   <h3 className="text-sm font-bold text-pink-500 mb-4 flex items-center gap-2">
+                     <span className="text-lg">💸</span> プール金から取り崩す
+                   </h3>
+                   <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+                     Target枠(プール金)から、特別費（コントロール領域）の残高へ資金を移動します。<br/>
+                     <span className="text-[10px] opacity-70">※現在のプール金: ¥{(targetItem?.currentAmount || 0).toLocaleString()}</span>
+                   </p>
+                   <div className="space-y-3">
+                     <div>
+                       <label className="text-[10px] text-gray-400 block mb-1">取り崩し金額 (特別費へチャージ)</label>
+                       <input type="number" className="w-full p-2 bg-gray-50 dark:bg-gray-700 rounded text-sm font-mono"
+                         value={poolWithdrawAmount} onChange={(e)=>setPoolWithdrawAmount(e.target.value)} placeholder="0" />
+                     </div>
+                     <div className="flex gap-2 mt-4 pt-2 border-t border-gray-100 dark:border-gray-700">
+                        <button onClick={()=>setIsPoolWithdrawModalOpen(false)} className="flex-1 py-2 text-xs font-bold text-gray-500 bg-gray-100 dark:bg-gray-700 dark:text-gray-300 rounded-lg">キャンセル</button>
+                        <button onClick={handlePoolWithdraw} className="flex-1 py-2 text-xs font-bold text-white bg-pink-500 rounded-lg shadow-lg">チャージ実行</button>
+                     </div>
+                   </div>
+                </div>
+              </div>
         )}
 
         {isRecoverModalOpen && (
@@ -962,8 +972,8 @@ export default function Home() {
                      <span className="text-lg">♻️</span> 投資回収（リバランス）
                    </h3>
                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-                     投資資産（Stock）から現金（Cash）へ資金を移動します。
-                     <br/><span className="text-[10px] opacity-70">※現在の資産残高: ¥{investStock.toLocaleString()}</span>
+                     投資資産（Stock）から現金（Cash）へ資金を移動します。<br/>
+                     <span className="text-[10px] opacity-70">※現在の資産残高: ¥{investStock.toLocaleString()}</span>
                    </p>
                    <div className="space-y-3">
                      <div>
@@ -983,10 +993,7 @@ export default function Home() {
         {isEditModalOpen && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-full max-w-sm animation-fade-in border border-gray-100 dark:border-gray-700">
-               <h3 className="text-sm font-bold text-gray-700 dark:text-gray-200 mb-4 flex items-center gap-2">
-                 <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                 履歴の編集
-               </h3>
+               <h3 className="text-sm font-bold text-gray-700 dark:text-gray-200 mb-4 flex items-center gap-2">履歴の編集</h3>
                <div className="space-y-3">
                  <div>
                    <label className="text-[10px] text-gray-400 block mb-1">金額</label>
@@ -1025,62 +1032,19 @@ export default function Home() {
              <div className="bg-blue-600 p-4 text-center">
                <h2 className="text-white font-bold text-sm tracking-widest uppercase">Settings</h2>
              </div>
-             <div className="p-6 space-y-8 max-h-[75vh] overflow-y-auto">
+             <div className="p-6 space-y-6 max-h-[75vh] overflow-y-auto">
                
-               <section>
-                 <h3 className="text-xs font-bold text-gray-500 uppercase mb-3 border-b border-gray-100 dark:border-gray-700 pb-1">モード設定</h3>
-                 <div className="flex items-center justify-between bg-indigo-50 dark:bg-indigo-900/20 p-3 rounded-xl mb-2">
-                   <div>
-                     <span className="text-xs font-bold text-indigo-600 dark:text-indigo-300 block">Tactics Mode</span>
-                     <span className="text-[9px] text-gray-400 block">資金の性質（義務・裁量）で管理</span>
-                   </div>
-                   <div className="flex items-center gap-2">
-                     <input type="checkbox" checked={isTacticsMode} onChange={(e)=>setIsTacticsMode(e.target.checked)} className="toggle" />
-                   </div>
-                 </div>
-                 {isTacticsMode && (
-                   <button onClick={() => setTacticsGuideType('all')} className="w-full text-center text-[10px] text-blue-500 underline py-1">
-                     【定義を確認】義務・裁量の分類例
+               {/* モード切り替え */}
+               <div className="flex bg-gray-100 dark:bg-gray-700 p-1 rounded-xl mb-2 shadow-inner">
+                   <button onClick={() => setAppMode('simple')} className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all ${appMode === 'simple' ? 'bg-white dark:bg-gray-600 shadow text-green-600 dark:text-green-400' : 'text-gray-400'}`}>
+                       🌱 Simple Mode
                    </button>
-                 )}
-               </section>
+                   <button onClick={() => setAppMode('technical')} className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all ${appMode === 'technical' ? 'bg-white dark:bg-gray-600 shadow text-indigo-600 dark:text-indigo-400' : 'text-gray-400'}`}>
+                       ⚙️ Technical Mode
+                   </button>
+               </div>
 
-               <section>
-                 <h3 className="text-xs font-bold text-pink-500 uppercase mb-3 border-b border-pink-100 dark:border-pink-900 pb-1">余剰金の扱い</h3>
-                 <div className="bg-pink-50 dark:bg-pink-900/20 p-3 rounded-xl mb-2">
-                    <p className="text-[10px] text-gray-500 dark:text-gray-300 mb-2">
-                        月予算（生活費・特別費）が余った場合の行き先:
-                    </p>
-                    <div className="flex gap-2 mb-3">
-                        <button onClick={()=>setSurplusAction('save')} className={`flex-1 py-2 rounded-lg text-xs font-bold ${surplusAction==='save' ? 'bg-indigo-500 text-white' : 'bg-white dark:bg-gray-700 text-gray-500'}`}>
-                            貯金へ
-                        </button>
-                        <button onClick={()=>setSurplusAction('target')} className={`flex-1 py-2 rounded-lg text-xs font-bold ${surplusAction==='target' ? 'bg-pink-500 text-white' : 'bg-white dark:bg-gray-700 text-gray-500'}`}>
-                            欲しい物へ
-                        </button>
-                    </div>
-                    {surplusAction === 'target' && (
-                        <div className="bg-white dark:bg-gray-700 p-2 rounded-lg space-y-2">
-                            <div>
-                                <label className="text-[10px] text-gray-400 block">欲しい物 (名称)</label>
-                                <input type="text" className="w-full p-1 border-b border-gray-200 dark:border-gray-600 bg-transparent text-xs" 
-                                    value={targetItem?.name || ""} onChange={(e)=>setTargetItem({...targetItem, name: e.target.value, targetAmount: targetItem?.targetAmount||0, currentAmount: targetItem?.currentAmount||0})} placeholder="例: 新しいテレビ" />
-                            </div>
-                            <div>
-                                <label className="text-[10px] text-gray-400 block">目標金額</label>
-                                <input type="number" className="w-full p-1 border-b border-gray-200 dark:border-gray-600 bg-transparent text-xs"
-                                    value={targetItem?.targetAmount || ""} onChange={(e)=>setTargetItem({...targetItem, name: targetItem?.name||"", targetAmount: Number(e.target.value), currentAmount: targetItem?.currentAmount||0})} placeholder="100000" />
-                            </div>
-                            <div>
-                                <label className="text-[10px] text-gray-400 block">現在の積立額 (手動修正)</label>
-                                <input type="number" className="w-full p-1 border-b border-gray-200 dark:border-gray-600 bg-transparent text-xs"
-                                    value={targetItem?.currentAmount || ""} onChange={(e)=>setTargetItem({...targetItem, name: targetItem?.name||"", targetAmount: targetItem?.targetAmount||0, currentAmount: Number(e.target.value)})} placeholder="0" />
-                            </div>
-                        </div>
-                    )}
-                 </div>
-               </section>
-
+               {/* 基本予算設定 (共通) */}
                <section>
                  <h3 className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase mb-3 border-b border-blue-100 dark:border-blue-900 pb-1">基本予算設定</h3>
                  <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-xl mb-4">
@@ -1108,6 +1072,8 @@ export default function Home() {
                    <div><label className="text-[10px] text-gray-400 block mb-1">貯金・投資積立(月)</label><input type="number" className="w-full p-2 bg-gray-50 dark:bg-gray-700 rounded-lg text-sm" value={monthlyInvestmentTarget} onChange={(e)=>setMonthlyInvestmentTarget(Number(e.target.value))} /></div>
                  </div>
                </section>
+
+               {/* 残高修正 (共通) */}
                <section>
                  <h3 className="text-xs font-bold text-red-500 uppercase mb-3 border-b border-red-100 dark:border-red-900 pb-1">残高修正 (リセット)</h3>
                  <div className="space-y-3">
@@ -1116,48 +1082,131 @@ export default function Home() {
                    <div className="flex items-center justify-between"><label className="text-xs font-bold text-gray-600 dark:text-gray-300">投資(資産) 残高</label><input type="number" className="w-32 p-2 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900 rounded-lg text-right font-mono text-sm" value={tempResetValues.investStock} onChange={(e)=>setTempResetValues({...tempResetValues, investStock: Number(e.target.value)})} /></div>
                  </div>
                </section>
-               <section>
-                  <h3 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase mb-3 border-b border-indigo-100 dark:border-indigo-900 pb-1">自動積立・固定費</h3>
-                  <div className="bg-indigo-50 dark:bg-indigo-900/30 p-3 rounded-xl mb-4">
-                    <div className="flex items-center justify-between mb-2"><span className="text-xs font-bold text-indigo-700 dark:text-indigo-300">NISA自動積立</span><input type="checkbox" checked={nisaSettings.enabled} onChange={(e)=>setNisaSettings({...nisaSettings, enabled: e.target.checked})} className="toggle" /></div>
-                    {nisaSettings.enabled && (<div className="flex gap-2"><input type="number" placeholder="金額" className="flex-1 p-2 rounded text-xs" value={nisaSettings.amount} onChange={(e)=>setNisaSettings({...nisaSettings, amount: Number(e.target.value)})} /><input type="number" placeholder="日" className="w-16 p-2 rounded text-xs" value={nisaSettings.day} onChange={(e)=>setNisaSettings({...nisaSettings, day: Number(e.target.value)})} /></div>)}
-                  </div>
-                  <div className="mb-2">
-                      <div className="flex justify-between items-center mb-2"><label className="text-[10px] text-gray-400 font-bold uppercase">サブスクリプション</label><button onClick={()=>{const n = prompt("名称"); if(!n)return;const a = prompt("金額"); if(!a)return;const d = prompt("支払日"); const c = prompt("カテゴリ", "その他");setSubscriptions([...subscriptions, {id: Date.now(), name: n, amount: Number(a), payDay: d?Number(d):"", category:c||"その他", lastPaidMonth:""}]);}} className="text-[10px] bg-indigo-100 text-indigo-600 px-2 py-1 rounded font-bold">追加</button></div>
-                      <div className="space-y-1">{subscriptions.map(s => (<div key={s.id} className="flex justify-between text-xs p-2 bg-gray-50 dark:bg-gray-700 rounded"><span>{s.name} (¥{s.amount})</span><button onClick={()=>setSubscriptions(subscriptions.filter(i=>i.id!==s.id))} className="text-red-400">削除</button></div>))}</div>
-                  </div>
-               </section>
+
+               {/* Technical Mode 専用設定 */}
+               {appMode === 'technical' && (
+                 <>
+                   <section className="animate-fade-in-up">
+                     <h3 className="text-xs font-bold text-gray-500 uppercase mb-3 border-b border-gray-100 dark:border-gray-700 pb-1">Tactics Mode設定</h3>
+                     <div className="flex items-center justify-between bg-indigo-50 dark:bg-indigo-900/20 p-3 rounded-xl mb-2">
+                       <div>
+                         <span className="text-xs font-bold text-indigo-600 dark:text-indigo-300 block">Tactics Modeを有効化</span>
+                         <span className="text-[9px] text-gray-400 block">資金の性質（義務・裁量）で管理</span>
+                       </div>
+                       <div className="flex items-center gap-2">
+                         <input type="checkbox" checked={isTacticsMode} onChange={(e)=>setIsTacticsMode(e.target.checked)} className="toggle" />
+                       </div>
+                     </div>
+                     {isTacticsMode && (
+                       <button onClick={() => setTacticsGuideType('all')} className="w-full text-center text-[10px] text-blue-500 underline py-1">
+                         【定義を確認】義務・裁量の分類例
+                       </button>
+                     )}
+                   </section>
+
+                   <section className="animate-fade-in-up">
+                     <h3 className="text-xs font-bold text-green-500 uppercase mb-3 border-b border-green-100 dark:border-green-900 pb-1">臨時収入の按分設定</h3>
+                     <div className="bg-green-50 dark:bg-green-900/20 p-3 rounded-xl mb-2">
+                       <p className="text-[10px] text-gray-500 dark:text-gray-300 mb-3">
+                          臨時収入があった際の自動振り分け比率を設定します。<br/>
+                          <span className="text-green-600 font-bold">推奨：投資 50% / プール金 50%</span>
+                       </p>
+                       <div className="flex items-center gap-4">
+                          <div className="flex-1 text-center">
+                            <label className="text-[10px] font-bold text-indigo-500 block mb-1">投資へ</label>
+                            <span className="text-lg font-mono font-bold text-gray-700 dark:text-gray-200">{windfallRatio}%</span>
+                          </div>
+                          <div className="flex-[2]">
+                            <input type="range" min="0" max="100" step="10" value={windfallRatio} onChange={(e)=>setWindfallRatio(Number(e.target.value))} className="w-full accent-green-500" />
+                          </div>
+                          <div className="flex-1 text-center">
+                            <label className="text-[10px] font-bold text-pink-500 block mb-1">プール金へ</label>
+                            <span className="text-lg font-mono font-bold text-gray-700 dark:text-gray-200">{100 - windfallRatio}%</span>
+                          </div>
+                       </div>
+                     </div>
+                   </section>
+
+                   <section className="animate-fade-in-up">
+                     <h3 className="text-xs font-bold text-pink-500 uppercase mb-3 border-b border-pink-100 dark:border-pink-900 pb-1">余剰金の扱い</h3>
+                     <div className="bg-pink-50 dark:bg-pink-900/20 p-3 rounded-xl mb-2">
+                        <p className="text-[10px] text-gray-500 dark:text-gray-300 mb-2">月予算が余った場合の行き先:</p>
+                        <div className="flex gap-2 mb-3">
+                            <button onClick={()=>setSurplusAction('save')} className={`flex-1 py-2 rounded-lg text-xs font-bold ${surplusAction==='save' ? 'bg-indigo-500 text-white' : 'bg-white dark:bg-gray-700 text-gray-500'}`}>貯金へ</button>
+                            <button onClick={()=>setSurplusAction('target')} className={`flex-1 py-2 rounded-lg text-xs font-bold ${surplusAction==='target' ? 'bg-pink-500 text-white' : 'bg-white dark:bg-gray-700 text-gray-500'}`}>プール金(Target)へ</button>
+                        </div>
+                        {surplusAction === 'target' && (
+                            <div className="bg-white dark:bg-gray-700 p-3 rounded-lg space-y-2 border border-pink-100 dark:border-gray-600">
+                                <p className="text-[9px] text-gray-400 mb-2 leading-tight">※目標金額を「0」に設定すると、純粋な「プール金（好きな時に取り崩せる枠）」として機能します。</p>
+                                <div>
+                                    <label className="text-[10px] text-gray-400 block">名称 (欲しい物 or プール金)</label>
+                                    <input type="text" className="w-full p-1 border-b border-gray-200 dark:border-gray-600 bg-transparent text-xs" 
+                                        value={targetItem?.name || ""} onChange={(e)=>setTargetItem({...targetItem, name: e.target.value, targetAmount: targetItem?.targetAmount||0, currentAmount: targetItem?.currentAmount||0})} placeholder="例: プール金" />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-gray-400 block">目標金額 (0でプール金化)</label>
+                                    <input type="number" className="w-full p-1 border-b border-gray-200 dark:border-gray-600 bg-transparent text-xs"
+                                        value={targetItem?.targetAmount ?? ""} onChange={(e)=>setTargetItem({...targetItem, name: targetItem?.name||"", targetAmount: Number(e.target.value), currentAmount: targetItem?.currentAmount||0})} placeholder="0" />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-gray-400 block">現在の積立額 (手動修正)</label>
+                                    <input type="number" className="w-full p-1 border-b border-gray-200 dark:border-gray-600 bg-transparent text-xs"
+                                        value={targetItem?.currentAmount ?? ""} onChange={(e)=>setTargetItem({...targetItem, name: targetItem?.name||"", targetAmount: targetItem?.targetAmount||0, currentAmount: Number(e.target.value)})} placeholder="0" />
+                                </div>
+                            </div>
+                        )}
+                     </div>
+                   </section>
+
+                   <section className="animate-fade-in-up">
+                      <h3 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase mb-3 border-b border-indigo-100 dark:border-indigo-900 pb-1">自動積立・固定費</h3>
+                      <div className="bg-indigo-50 dark:bg-indigo-900/30 p-3 rounded-xl mb-4">
+                        <div className="flex items-center justify-between mb-2"><span className="text-xs font-bold text-indigo-700 dark:text-indigo-300">NISA自動積立</span><input type="checkbox" checked={nisaSettings.enabled} onChange={(e)=>setNisaSettings({...nisaSettings, enabled: e.target.checked})} className="toggle" /></div>
+                        {nisaSettings.enabled && (<div className="flex gap-2"><input type="number" placeholder="金額" className="flex-1 p-2 rounded text-xs" value={nisaSettings.amount} onChange={(e)=>setNisaSettings({...nisaSettings, amount: Number(e.target.value)})} /><input type="number" placeholder="日" className="w-16 p-2 rounded text-xs" value={nisaSettings.day} onChange={(e)=>setNisaSettings({...nisaSettings, day: Number(e.target.value)})} /></div>)}
+                      </div>
+                      <div className="mb-2">
+                          <div className="flex justify-between items-center mb-2"><label className="text-[10px] text-gray-400 font-bold uppercase">サブスクリプション</label><button onClick={()=>{const n = prompt("名称"); if(!n)return;const a = prompt("金額"); if(!a)return;const d = prompt("支払日"); const c = prompt("カテゴリ", "その他");setSubscriptions([...subscriptions, {id: Date.now(), name: n, amount: Number(a), payDay: d?Number(d):"", category:c||"その他", lastPaidMonth:""}]);}} className="text-[10px] bg-indigo-100 text-indigo-600 px-2 py-1 rounded font-bold">追加</button></div>
+                          <div className="space-y-1">{subscriptions.map(s => (<div key={s.id} className="flex justify-between text-xs p-2 bg-gray-50 dark:bg-gray-700 rounded"><span>{s.name} (¥{s.amount})</span><button onClick={()=>setSubscriptions(subscriptions.filter(i=>i.id!==s.id))} className="text-red-400">削除</button></div>))}</div>
+                      </div>
+                   </section>
+                 </>
+               )}
+
+               {/* 表示設定 (共通ですが項目は出し分け) */}
                <section>
                    <h3 className="text-xs font-bold text-gray-500 uppercase mb-3 border-b border-gray-100 dark:border-gray-700 pb-1">表示設定</h3>
                    <div className="flex gap-2 mb-4">{(['light', 'dark', 'system'] as ThemeOption[]).map(t => (<button key={t} onClick={()=>setTheme(t)} className={`flex-1 py-2 text-xs font-bold rounded-lg border ${theme===t ? 'bg-gray-800 text-white dark:bg-white dark:text-gray-900 border-transparent' : 'border-gray-200 dark:border-gray-600 text-gray-500'}`}>{t === 'light' ? 'ライト' : t === 'dark' ? 'ダーク' : '自動'}</button>))}</div>
-                   <div className="flex items-center justify-between"><span className="text-xs text-gray-500">CSV出力機能</span><input type="checkbox" checked={isCsvMode} onChange={(e)=>setIsCsvMode(e.target.checked)} /></div>
-                   {isCsvMode && <button onClick={downloadCSV} className="mt-2 text-xs text-green-600 underline block mb-4">過去データのダウンロード</button>}
                    
-                   {/* 開発者/裏メニュー */}
-                   <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
-                       <div className="flex justify-between items-center mb-2">
-                           <span className="text-[10px] text-gray-400 font-bold uppercase">高度な設定 (保存期間)</span>
-                           {isUnlimitedArchive ? (
-                               <span className="text-[10px] bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400 px-2 py-0.5 rounded font-bold">無制限モード有効</span>
-                           ) : (
-                               <span className="text-[10px] bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400 px-2 py-0.5 rounded font-bold">直近6ヶ月</span>
+                   {appMode === 'technical' && (
+                     <>
+                       <div className="flex items-center justify-between"><span className="text-xs text-gray-500">CSV出力機能</span><input type="checkbox" checked={isCsvMode} onChange={(e)=>setIsCsvMode(e.target.checked)} /></div>
+                       {isCsvMode && <button onClick={downloadCSV} className="mt-2 text-xs text-green-600 underline block mb-4">過去データのダウンロード</button>}
+                       
+                       <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
+                           <div className="flex justify-between items-center mb-2">
+                               <span className="text-[10px] text-gray-400 font-bold uppercase">高度な設定 (保存期間)</span>
+                               {isUnlimitedArchive ? (
+                                   <span className="text-[10px] bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400 px-2 py-0.5 rounded font-bold">無制限モード有効</span>
+                               ) : (
+                                   <span className="text-[10px] bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400 px-2 py-0.5 rounded font-bold">直近6ヶ月</span>
+                               )}
+                           </div>
+                           {!isUnlimitedArchive && (
+                               <div className="flex gap-2">
+                                   <input type="password" placeholder="認証コード(4桁)" maxLength={4} className="flex-1 p-2 bg-gray-50 dark:bg-gray-700 rounded text-xs text-center tracking-widest font-mono" value={secretCode} onChange={(e) => setSecretCode(e.target.value)} />
+                                   <button onClick={() => { 
+                                       if(secretCode === '0322') { 
+                                           setIsUnlimitedArchive(true); 
+                                           alert('無制限モードが解放されました。\n設定を保存してください。'); 
+                                       } else { 
+                                           alert('コードが違います'); setSecretCode(''); 
+                                       } 
+                                   }} className="bg-gray-800 dark:bg-gray-600 text-white text-xs px-3 rounded shadow-sm hover:bg-gray-700">適用</button>
+                               </div>
                            )}
                        </div>
-                       {!isUnlimitedArchive && (
-                           <div className="flex gap-2">
-                               <input type="password" placeholder="認証コード(4桁)" maxLength={4} className="flex-1 p-2 bg-gray-50 dark:bg-gray-700 rounded text-xs text-center tracking-widest font-mono" value={secretCode} onChange={(e) => setSecretCode(e.target.value)} />
-                               <button onClick={() => { 
-                                   if(secretCode === '0322') { 
-                                       setIsUnlimitedArchive(true); 
-                                       alert('無制限モードが解放されました。\n設定を保存してください。'); 
-                                   } else { 
-                                       alert('コードが違います'); 
-                                       setSecretCode(''); 
-                                   } 
-                               }} className="bg-gray-800 dark:bg-gray-600 text-white text-xs px-3 rounded shadow-sm hover:bg-gray-700">適用</button>
-                           </div>
-                       )}
-                   </div>
+                     </>
+                   )}
                </section>
                
                <button onClick={handleUpdateSettings} className="w-full bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-xl font-bold text-sm shadow-lg transition-transform active:scale-95">設定を保存して戻る</button>
@@ -1167,15 +1216,15 @@ export default function Home() {
           // --- メイン画面 ---
           <div className="space-y-6 animate-fade-in-up">
             
-            {/* 1. ダッシュボード (PCでは横並び) */}
+            {/* 1. ダッシュボード */}
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               <div className="bg-white dark:bg-gray-800 p-4 rounded-3xl shadow-sm border border-blue-50 dark:border-gray-700 relative overflow-hidden group">
                   <div className="absolute top-0 right-0 w-16 h-16 bg-blue-50 dark:bg-blue-900/20 rounded-bl-full -mr-4 -mt-4 transition-transform group-hover:scale-110"></div>
                   <div className="relative z-10 flex justify-between items-start">
                      <p className="text-[10px] font-bold text-blue-400 dark:text-blue-300 mb-1 uppercase tracking-wider">
-                       {isTacticsMode ? "🛡️【義務】アンコントロール" : "生活費残高"}
+                       {displayTactics ? "🛡️【義務】アンコントロール" : "生活費残高"}
                      </p>
-                     {isTacticsMode && (
+                     {displayTactics && (
                         <button onClick={() => setTacticsGuideType('uncontrol')} className="text-blue-400 hover:text-blue-600 -mt-1 -mr-1 p-1">
                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                         </button>
@@ -1183,7 +1232,7 @@ export default function Home() {
                   </div>
                   <p className={`text-2xl font-mono font-bold relative z-10 ${balance < 0 ? 'text-red-500' : 'text-gray-800 dark:text-white'}`}>¥{balance.toLocaleString()}</p>
                   <p className="text-[8px] text-gray-400 dark:text-gray-500 mt-1 font-mono">
-                    {isTacticsMode ? "Uncontrollable Expenses" : (livingBudgetMode === 'daily' ? 'Daily Accumulation' : 'Monthly Budget')}
+                    {displayTactics ? "Uncontrollable Expenses" : (livingBudgetMode === 'daily' ? 'Daily Accumulation' : 'Monthly Budget')}
                   </p>
               </div>
               
@@ -1191,16 +1240,16 @@ export default function Home() {
                   <div className="absolute top-0 right-0 w-16 h-16 bg-pink-50 dark:bg-pink-900/20 rounded-bl-full -mr-4 -mt-4 transition-transform group-hover:scale-110"></div>
                   <div className="relative z-10 flex justify-between items-start">
                      <p className="text-[10px] font-bold text-pink-400 dark:text-pink-300 mb-1 uppercase tracking-wider">
-                       {isTacticsMode ? "🎮【裁量】コントロール" : "特別費"}
+                       {displayTactics ? "🎮【裁量】コントロール" : "特別費"}
                      </p>
-                     {isTacticsMode && (
+                     {displayTactics && (
                         <button onClick={() => setTacticsGuideType('control')} className="text-pink-400 hover:text-pink-600 -mt-1 -mr-1 p-1">
                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                         </button>
                      )}
                   </div>
                   <p className={`text-2xl font-mono font-bold relative z-10 ${savings < 0 ? 'text-red-500' : 'text-gray-800 dark:text-white'}`}>¥{savings.toLocaleString()}</p>
-                  {isTacticsMode && <p className="text-[8px] text-gray-400 dark:text-gray-500 mt-1 font-mono">Controllable Expenses</p>}
+                  {displayTactics && <p className="text-[8px] text-gray-400 dark:text-gray-500 mt-1 font-mono">Controllable Expenses</p>}
               </div>
 
               <div className="col-span-2 md:col-span-1 bg-gradient-to-r from-indigo-600 to-violet-600 p-5 rounded-3xl shadow-lg text-white relative overflow-hidden">
@@ -1208,17 +1257,19 @@ export default function Home() {
                   <div className="relative z-10">
                       <div className="flex items-center justify-between mb-3 opacity-90">
                           <p className="text-[10px] font-bold uppercase tracking-widest">貯金と投資</p>
-                          <div className="flex items-center gap-2">
-                             {defenseStatus > 0 && (
-                               <div className="flex items-center gap-1 bg-white/20 px-2 py-0.5 rounded backdrop-blur-sm text-[9px] font-bold animate-pulse">
-                                 <span>{defenseStatus === 2 ? '🏰' : '🛡️'}</span>
-                                 <span>{defenseStatus === 2 ? '盤石' : '安心'}</span>
-                               </div>
-                             )}
-                             <button onClick={() => setTacticsGuideType('defense')} className="bg-white/20 hover:bg-white/30 p-1 rounded backdrop-blur-sm transition-colors">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                             </button>
-                          </div>
+                          {appMode === 'technical' && (
+                              <div className="flex items-center gap-2">
+                                 {defenseStatus > 0 && (
+                                   <div className="flex items-center gap-1 bg-white/20 px-2 py-0.5 rounded backdrop-blur-sm text-[9px] font-bold animate-pulse">
+                                     <span>{defenseStatus === 2 ? '🏰' : '🛡️'}</span>
+                                     <span>{defenseStatus === 2 ? '盤石' : '安心'}</span>
+                                   </div>
+                                 )}
+                                 <button onClick={() => setTacticsGuideType('defense')} className="bg-white/20 hover:bg-white/30 p-1 rounded backdrop-blur-sm transition-colors">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                                 </button>
+                              </div>
+                          )}
                       </div>
                       <div className="flex divide-x divide-white/20">
                           <div className="pr-4 flex-1">
@@ -1228,58 +1279,67 @@ export default function Home() {
                           <div className="pl-4 flex-1">
                               <div className="flex justify-between items-start">
                                 <p className="text-[9px] opacity-70 mb-0.5">投資 (資産)</p>
-                                <button onClick={() => setIsRecoverModalOpen(true)} className="bg-white/20 hover:bg-white hover:text-indigo-600 text-white rounded p-1 transition-colors shadow-sm" title="回収（リバランス）">
-                                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
-                                </button>
+                                {appMode === 'technical' && (
+                                    <button onClick={() => setIsRecoverModalOpen(true)} className="bg-white/20 hover:bg-white hover:text-indigo-600 text-white rounded p-1 transition-colors shadow-sm" title="回収（リバランス）">
+                                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
+                                    </button>
+                                )}
                               </div>
                               <p className="text-xl font-mono font-bold">¥{investStock.toLocaleString()}</p>
                           </div>
                       </div>
                       
-                      <div className="mt-3 pt-3 border-t border-white/10">
-                         <div className="flex justify-between text-[8px] opacity-70 mb-1 font-mono">
-                           <span>Life Defense Fund</span>
-                           <span>{Math.round((investCash / defenseFundLine2) * 100)}%</span>
-                         </div>
-                         <div className="w-full bg-black/20 rounded-full h-1.5 overflow-hidden relative">
-                           <div className="absolute top-0 bottom-0 w-0.5 bg-white/50 z-20" style={{ left: '50%' }}></div>
-                           <div className={`h-full rounded-full transition-all duration-1000 ${defenseStatus === 2 ? 'bg-green-400' : defenseStatus === 1 ? 'bg-yellow-400' : 'bg-white/50'}`} style={{ width: `${Math.min((investCash / defenseFundLine2) * 100, 100)}%` }}></div>
-                         </div>
-                         <div className="flex justify-between text-[7px] opacity-50 mt-1 font-mono">
-                           <span>0</span>
-                           <span className="text-center w-full -ml-4">3Mo</span>
-                           <span>6Mo</span>
-                         </div>
-                      </div>
+                      {appMode === 'technical' && (
+                          <div className="mt-3 pt-3 border-t border-white/10">
+                             <div className="flex justify-between text-[8px] opacity-70 mb-1 font-mono">
+                               <span>Life Defense Fund</span>
+                               <span>{Math.round((investCash / defenseFundLine2) * 100)}%</span>
+                             </div>
+                             <div className="w-full bg-black/20 rounded-full h-1.5 overflow-hidden relative">
+                               <div className="absolute top-0 bottom-0 w-0.5 bg-white/50 z-20" style={{ left: '50%' }}></div>
+                               <div className={`h-full rounded-full transition-all duration-1000 ${defenseStatus === 2 ? 'bg-green-400' : defenseStatus === 1 ? 'bg-yellow-400' : 'bg-white/50'}`} style={{ width: `${Math.min((investCash / defenseFundLine2) * 100, 100)}%` }}></div>
+                             </div>
+                          </div>
+                      )}
                   </div>
               </div>
             </div>
 
-            {/* Target Card */}
-            {surplusAction === 'target' && targetItem && (
+            {/* Target Card (Technical Mode 専用: プール金対応) */}
+            {appMode === 'technical' && surplusAction === 'target' && targetItem && (
                <div className={`p-4 rounded-2xl shadow-sm text-white relative overflow-hidden animate-fade-in transition-all duration-500 ${isTargetReached ? 'bg-gradient-to-r from-yellow-400 to-orange-500 ring-4 ring-yellow-200 dark:ring-yellow-900' : 'bg-gradient-to-r from-pink-500 to-rose-500'}`}>
                   <div className="absolute opacity-10 top-[-10px] right-[-10px] w-24 h-24 bg-white rounded-full blur-xl"></div>
                   <div className="relative z-10">
                       <div className="flex justify-between items-center mb-1">
-                          <p className="text-[10px] font-bold uppercase tracking-widest opacity-90">{isTargetReached ? "Goal Reached! 🎉" : "Current Target"}</p>
-                          <span className="text-[10px] font-bold bg-white/20 px-2 py-0.5 rounded">{Math.round((targetItem.currentAmount / targetItem.targetAmount) * 100)}%</span>
+                          <p className="text-[10px] font-bold uppercase tracking-widest opacity-90">
+                              {targetItem.targetAmount > 0 ? (isTargetReached ? "Goal Reached! 🎉" : "Current Target") : "Pool Fund (プール金)"}
+                          </p>
+                          {targetItem.targetAmount > 0 && (
+                              <span className="text-[10px] font-bold bg-white/20 px-2 py-0.5 rounded">{Math.round((targetItem.currentAmount / targetItem.targetAmount) * 100)}%</span>
+                          )}
                       </div>
-                      <h3 className="text-lg font-bold mb-2">{targetItem.name}</h3>
+                      <h3 className="text-lg font-bold mb-2">{targetItem.name || 'プール金'}</h3>
                       <div className="flex justify-between items-end text-xs font-mono mb-2">
                           <span className="text-xl font-bold">¥{targetItem.currentAmount.toLocaleString()}</span>
-                          <span className="opacity-70">/ ¥{targetItem.targetAmount.toLocaleString()}</span>
-                      </div>
-                      <div className="w-full bg-black/20 rounded-full h-2 overflow-hidden mb-2">
-                          <div className={`h-full bg-white transition-all duration-1000 ${isTargetReached ? 'animate-pulse' : ''}`} style={{ width: `${Math.min((targetItem.currentAmount / targetItem.targetAmount) * 100, 100)}%` }}></div>
+                          {targetItem.targetAmount > 0 && <span className="opacity-70">/ ¥{targetItem.targetAmount.toLocaleString()}</span>}
                       </div>
                       
-                      {isTargetReached ? (
-                          <button onClick={handlePurchaseTarget} className="w-full mt-2 py-2 bg-white text-orange-600 font-bold text-xs rounded-lg shadow-md hover:bg-gray-100 transition-transform active:scale-95 animate-bounce">
-                              🎁 GET! (購入して記録)
-                          </button>
-                      ) : (
-                          <p className="text-[9px] opacity-70 mt-1 text-right">余剰金から自動積立中</p>
+                      {targetItem.targetAmount > 0 && (
+                          <div className="w-full bg-black/20 rounded-full h-2 overflow-hidden mb-3">
+                              <div className={`h-full bg-white transition-all duration-1000 ${isTargetReached ? 'animate-pulse' : ''}`} style={{ width: `${Math.min((targetItem.currentAmount / targetItem.targetAmount) * 100, 100)}%` }}></div>
+                          </div>
                       )}
+                      
+                      <div className="flex gap-2 mt-3">
+                          {targetItem.targetAmount > 0 && isTargetReached && (
+                              <button onClick={handlePurchaseTarget} className="flex-1 py-2 bg-white text-orange-600 font-bold text-xs rounded-lg shadow-md hover:bg-gray-100 transition-transform active:scale-95 animate-bounce">
+                                  🎁 GET! (一括購入)
+                              </button>
+                          )}
+                          <button onClick={() => setIsPoolWithdrawModalOpen(true)} className="flex-1 py-2 bg-white/20 text-white font-bold text-xs rounded-lg shadow-sm hover:bg-white/30 transition-transform active:scale-95 border border-white/50">
+                              💸 取り崩す (特別費へ)
+                          </button>
+                      </div>
                   </div>
                </div>
             )}
@@ -1333,7 +1393,7 @@ export default function Home() {
                     <div className="bg-white dark:bg-gray-800 p-5 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700">
                       <h3 className="text-[10px] font-bold text-gray-400 dark:text-gray-500 mb-4 uppercase tracking-widest">直近の履歴</h3>
                       <div className="space-y-4">
-                        {displayHistory.map((item, index) => {
+                        {displayHistoryList.map((item, index) => {
                           return (
                             <div key={index} className="flex items-start justify-between border-b border-gray-50 dark:border-gray-700 pb-3 last:border-0">
                               <div className="flex-1">
@@ -1363,7 +1423,6 @@ export default function Home() {
                         {history.length === 0 && <p className="text-center text-xs text-gray-300 py-4">履歴はありません</p>}
                       </div>
                       
-                      {/* Read More ボタン */}
                       {history.length > 5 && (
                         <button 
                           onClick={() => setShowAllHistory(!showAllHistory)}
