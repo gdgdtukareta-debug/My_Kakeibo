@@ -35,7 +35,6 @@ type TargetItem = {
   currentAmount: number;
 };
 
-
 type AppMode = 'simple' | 'technical';
 type ThemeOption = 'light' | 'dark' | 'system';
 type BudgetMode = 'daily' | 'monthly';
@@ -44,17 +43,14 @@ type SurplusAction = 'save' | 'target';
 type Archives = { [key: string]: Transaction[] };
 
 // --- 休日・祝日判定と給料日計算ロジック ---
-// APIから取得した祝日データを保持する変数
 let fetchedHolidays: string[] = [];
 
-// APIエラー時のフォールバック用（2024〜2026年）
 const fallbackHolidays = [
   "2024-01-01", "2024-01-08", "2024-02-12", "2024-02-23", "2024-03-20", "2024-04-29", "2024-05-03", "2024-05-04", "2024-05-06", "2024-07-15", "2024-08-12", "2024-09-16", "2024-09-22", "2024-09-23", "2024-10-14", "2024-11-03", "2024-11-04", "2024-11-23",
   "2025-01-01", "2025-01-13", "2025-02-11", "2025-02-23", "2025-02-24", "2025-03-20", "2025-04-29", "2025-05-03", "2025-05-04", "2025-05-05", "2025-05-06", "2025-07-21", "2025-08-11", "2025-09-15", "2025-09-23", "2025-10-13", "2025-11-03", "2025-11-23", "2025-11-24",
   "2026-01-01", "2026-01-12", "2026-02-11", "2026-02-23", "2026-03-20", "2026-04-29", "2026-05-03", "2026-05-04", "2026-05-05", "2026-05-06", "2026-07-20", "2026-08-11", "2026-09-21", "2026-09-22", "2026-09-23", "2026-10-12", "2026-11-03", "2026-11-23"
 ];
 
-// 初期化時に非同期で日本の祝日カレンダーAPIを取得
 if (typeof window !== "undefined") {
     fetch("https://holidays-jp.github.io/api/v1/date.json")
         .then(res => res.json())
@@ -66,7 +62,7 @@ if (typeof window !== "undefined") {
 
 const isHolidayOrWeekend = (d: Date) => {
   const day = d.getDay();
-  if (day === 0 || day === 6) return true; // 日・土
+  if (day === 0 || day === 6) return true;
   const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const holidaysList = fetchedHolidays.length > 0 ? fetchedHolidays : fallbackHolidays;
   return holidaysList.includes(dateStr);
@@ -241,6 +237,7 @@ export default function Home() {
   const [investCash, setInvestCash] = useState(0);      
   const [investStock, setInvestStock] = useState(0);    
   const [totalSpent, setTotalSpent] = useState(0);
+  const [livingBalanceOffset, setLivingBalanceOffset] = useState(0); 
 
   const [nisaSettings, setNisaSettings] = useState({ enabled: false, amount: 0, day: 1, lastProcessedMonth: "" });
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
@@ -272,7 +269,7 @@ export default function Home() {
   const [withdrawAmount, setWithdrawAmount] = useState("");
 
   const [theme, setTheme] = useState<ThemeOption>('system');
-  const [tempResetValues, setTempResetValues] = useState({ special: 0, investCash: 0, investStock: 0, living: 0 });
+  const [tempResetValues, setTempResetValues] = useState({ special: 0, investCash: 0, investStock: 0, livingBalance: 0, targetPool: 0 });
 
   const normalCategories = ["食費", "日用品", "趣味", "仕事", "その他", "特別支出", "投資", "貯金", "臨時収入", "投資回収", "積立取崩"];
   const tacticsCategories = ["アンコントロール", "コントロール", "投資", "貯金", "臨時収入", "投資回収", "積立取崩"];
@@ -384,8 +381,8 @@ export default function Home() {
       let currentTargetItem: TargetItem | null = null;
       let currentTempRatio = 50;
       let currentUnlimitedArchive = false;
+      let currentLivingOffset = 0;
 
-      // let currentMonthlyBalances: MonthlyBalanceRecord[] = [];
       let isTacticsModeNow = false;
 
       if (docSnap.exists()) {
@@ -411,6 +408,7 @@ export default function Home() {
         currentSurplusAction = s.surplusAction || 'save';
         currentTargetItem = s.targetItem || null;
         currentTempRatio = s.tempIncomeInvestRatio !== undefined ? s.tempIncomeInvestRatio : 50;
+        currentLivingOffset = s.livingBalanceOffset || 0;
         
         setAppMode(currentAppMode);
         setDailyBudget(currentBudget);
@@ -425,6 +423,7 @@ export default function Home() {
         setTargetItem(currentTargetItem);
         setTempIncomeInvestRatio(currentTempRatio);
         setIsUnlimitedArchive(currentUnlimitedArchive);
+        setLivingBalanceOffset(currentLivingOffset);
 
         currentSavings = data.savings_balance || 0;
         currentInvestCash = data.invest_cash_balance ?? (data.investment_balance || 0);
@@ -433,13 +432,12 @@ export default function Home() {
         rawHistory = data.history || [];
         currentArchives = data.archives || {};
         currentSubs = data.subscriptions || [];
-        // currentMonthlyBalances = data.monthlyBalances || [];
 
         if (currentUnlimitedArchive) {
            const dataSize = new Blob([JSON.stringify(data)]).size;
            const warningThreshold = 950 * 1024; 
            if (dataSize > warningThreshold) {
-               alert(`⚠️【データ容量警告】\n保存データが上限(1MB)に近づいています。(現在約${Math.round(dataSize/1024)}KB)\n古い履歴やアーカイブを手動で削除してください。`);
+               alert(`⚠️【データ容量警告】\n保存データが上限(1MB)に近づいています。(現在約${Math.round(dataSize/1024)}KB)\n古い履歴やアーカイブを手落で削除してください。`);
            }
         }
       } else {
@@ -472,13 +470,8 @@ export default function Home() {
             const itemDate = new Date(item.date);
             if (itemDate < targetPayday) {
                 oldHistoryToArchive.push(item);
-                if (itemDate >= prevPayday && !["特別支出", "コントロール", "投資", "貯金", "臨時収入", "投資回収", "積立取崩"].includes(item.category)) {
-                    // 以前の履歴の精算
-                    if (item.type === 'income') {
-                        prevRegularSpent -= item.amount;
-                    } else {
-                        prevRegularSpent += item.amount;
-                    }
+                if (itemDate >= prevPayday && !["特別支出", "投資", "貯金", "臨時収入", "コントロール", "投資回収", "積立取崩"].includes(item.category)) {
+                    prevRegularSpent += item.amount;
                 }
             } else {
                 keptHistory.push(item);
@@ -488,25 +481,24 @@ export default function Home() {
         let surplus = 0;
         if (currentMode === 'daily') {
             const diffDays = Math.ceil((targetPayday.getTime() - prevPayday.getTime()) / (1000 * 60 * 60 * 24));
-            surplus = (diffDays * currentBudget) - prevRegularSpent;
+            surplus = (diffDays * currentBudget) - prevRegularSpent + currentLivingOffset;
         } else {
-            surplus = currentMonthlyLiving - prevRegularSpent;
+            surplus = currentMonthlyLiving - prevRegularSpent + currentLivingOffset;
         }
-
-        // 月次残高の記録（無制限モード時）
-        // unlimited archive monthly balance logging removed per user request
 
         currentSavings += currentMonthlySaving;
         currentInvestCash += currentMonthlyInvestment;
 
+        // ①残高がプラスであれば、プールして残高を実質0（新月の予算のみ）にする
         if (surplus > 0) {
            if (currentAppMode === 'technical' && currentSurplusAction === 'target' && currentTargetItem) {
                currentTargetItem.currentAmount += surplus;
            } else {
                currentInvestCash += surplus;
            }
-        } else if (surplus < 0) {
-           // マイナス分（前借り）を清算するため、新しい月の履歴にマイナス繰越を追加
+        } 
+        // ②残高がマイナスであれば、新しい月の入金から清算する（＝新月に負債支出を記載する）
+        else if (surplus < 0) {
            keptHistory.push({
                amount: Math.abs(surplus),
                category: (isTacticsModeNow && currentAppMode === 'technical') ? "アンコントロール" : "その他",
@@ -529,11 +521,10 @@ export default function Home() {
 
         rawHistory = keptHistory;
         currentLastProcessedPayday = targetPaydayStr;
+        currentLivingOffset = 0; // 月を跨いだら手動オフセットはリセットする
+        setLivingBalanceOffset(0);
         dataModified = true;
       } else if (currentLastProcessedPayday === "") {
-        // 初回実行時のみ、新月の予算を追加
-        currentSavings += currentMonthlySaving;
-        currentInvestCash += currentMonthlyInvestment;
         currentLastProcessedPayday = targetPaydayStr;
         dataModified = true;
       }
@@ -577,7 +568,8 @@ export default function Home() {
           subscriptions: updatedSubs,
           "settings.lastProcessedPayday": currentLastProcessedPayday,
           "settings.nisaSettings": currentNisa,
-          "settings.targetItem": currentTargetItem
+          "settings.targetItem": currentTargetItem,
+          "settings.livingBalanceOffset": currentLivingOffset
         });
       }
 
@@ -604,14 +596,8 @@ export default function Home() {
             totalAll += item.amount;
             if (catTotals[item.category] !== undefined) catTotals[item.category] += item.amount;
             if (item.category === "投資回収" || item.category === "積立取崩") totalAll -= item.amount;
-            
-            // 生活費残高の計算ロジック（収入対応）
             if (!["特別支出", "コントロール", "投資", "貯金", "臨時収入", "投資回収", "積立取崩"].includes(item.category)) {
-              if (item.type === 'income') {
-                  totalRegular -= item.amount;
-              } else {
-                  totalRegular += item.amount;
-              }
+              totalRegular += item.amount;
             }
         }
       });
@@ -620,14 +606,14 @@ export default function Home() {
       let currentBalance = 0;
       if (currentMode === 'daily') {
           const daysFromStart = Math.floor((now.getTime() - targetPayday.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-          currentBalance = (daysFromStart * currentBudget) - totalRegular;
+          currentBalance = (daysFromStart * currentBudget) - totalRegular + currentLivingOffset;
       } else {
-          currentBalance = currentMonthlyLiving - totalRegular;
+          currentBalance = currentMonthlyLiving - totalRegular + currentLivingOffset;
       }
       setBalance(currentBalance);
-      
-      // リセット用の一時変数に最新の残高をセット
-      setTempResetValues({ special: currentSavings, investCash: currentInvestCash, investStock: currentInvestStock, living: currentBalance });
+
+      // Settings用の初期値同期
+      setTempResetValues({ special: currentSavings, investCash: currentInvestCash, investStock: currentInvestStock, livingBalance: currentBalance, targetPool: currentTargetItem?.currentAmount || 0 });
 
       setChartData({
         labels: currentCategories,
@@ -879,20 +865,28 @@ export default function Home() {
       const confirmAdd = confirm(`設定を更新しますか？\n(残高リセット値も適用されます)`);
       if (!confirmAdd) return;
       
+      const diffLiving = tempResetValues.livingBalance - balance;
+      const newLivingOffset = livingBalanceOffset + diffLiving;
+
+      let newTargetItem = targetItem ? { ...targetItem } : null;
+      if (newTargetItem && tempResetValues.targetPool !== undefined) {
+          newTargetItem.currentAmount = tempResetValues.targetPool;
+      }
+
       const newSettings = { 
         appMode, tempIncomeInvestRatio,
         dailyBudget, monthlyLivingBudget, livingBudgetMode, payday, monthlySavingTarget, monthlyInvestmentTarget, 
         isCsvMode, theme, nisaSettings, isTacticsMode: appMode === 'simple' ? false : isTacticsMode, isUnlimitedArchive,
-        surplusAction, targetItem,
+        surplusAction, targetItem: newTargetItem, livingBalanceOffset: newLivingOffset,
         lastProcessedPayday: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`
       };
-
+      
       await updateDoc(docRef, { 
           settings: newSettings, 
           subscriptions: subscriptions, 
           savings_balance: tempResetValues.special, 
           invest_cash_balance: tempResetValues.investCash, 
-          invest_stock_balance: tempResetValues.investStock
+          invest_stock_balance: tempResetValues.investStock 
       });
 
       setIsSettingMode(false);
@@ -951,7 +945,7 @@ export default function Home() {
       amount: item.amount,
       category: item.category,
       memo: item.memo,
-      date: new Date(item.date).toISOString().split('T')[0] 
+      date: new Date(item.date).toISOString().split('T')[0] // YYYY-MM-DD
     });
     setIsEditModalOpen(true);
   };
@@ -1018,7 +1012,6 @@ export default function Home() {
       let newType: 'expense' | 'income' | 'transfer' = 'expense';
       if (editForm.category === "投資") newType = 'transfer';
       else if (editForm.category === "臨時収入" || editForm.category === "投資回収" || editForm.category === "積立取崩") newType = 'income';
-      else if (editForm.category === "その他" && newAmount < 0) newType = 'income'; 
 
       const newHistory = [...history];
       const updateDate = new Date(editForm.date);
@@ -1026,11 +1019,11 @@ export default function Home() {
       updateDate.setHours(now.getHours(), now.getMinutes());
 
       const updatedHistoryItem: Transaction = {
-        amount: Math.abs(newAmount), 
+        amount: newAmount,
         category: editForm.category,
         memo: editForm.memo,
         date: updateDate.toISOString(),
-        type: newAmount < 0 && editForm.category === "その他" ? 'income' : newType
+        type: newType
       };
 
       if (isNewSplit) {
@@ -1139,7 +1132,16 @@ export default function Home() {
             <button onClick={() => setIsHelpModalOpen(true)} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 w-8 h-8 rounded-full shadow-sm hover:bg-gray-50 transition-all flex items-center justify-center font-bold text-gray-500 text-xs">
                 ?
             </button>
-            <button onClick={() => setIsSettingMode(!isSettingMode)} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-2 rounded-full shadow-sm hover:bg-gray-50 transition-all">
+            <button onClick={() => {
+                setTempResetValues({
+                    special: savings,
+                    investCash: investCash,
+                    investStock: investStock,
+                    livingBalance: balance,
+                    targetPool: targetItem ? targetItem.currentAmount : 0
+                });
+                setIsSettingMode(!isSettingMode);
+            }} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-2 rounded-full shadow-sm hover:bg-gray-50 transition-all">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-600 dark:text-gray-300"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
             </button>
           </div>
@@ -1338,11 +1340,6 @@ export default function Home() {
                                     <input type="number" className="w-full p-1 border-b border-gray-200 dark:border-gray-600 bg-transparent text-xs"
                                         value={targetItem?.targetAmount || ""} onChange={(e)=>setTargetItem({...targetItem, name: targetItem?.name||"", targetAmount: Number(e.target.value), currentAmount: targetItem?.currentAmount||0})} placeholder="100000" />
                                 </div>
-                                <div>
-                                    <label className="text-[10px] text-gray-400 block">現在の積立額 (手動修正)</label>
-                                    <input type="number" className="w-full p-1 border-b border-gray-200 dark:border-gray-600 bg-transparent text-xs"
-                                        value={targetItem?.currentAmount || ""} onChange={(e)=>setTargetItem({...targetItem, name: targetItem?.name||"", targetAmount: targetItem?.targetAmount||0, currentAmount: Number(e.target.value)})} placeholder="0" />
-                                </div>
                                 <p className="text-[9px] text-gray-400 mt-1">※この枠は、不定期な出費用のプール金としても運用可能です。</p>
                             </div>
                         )}
@@ -1403,10 +1400,13 @@ export default function Home() {
                  </div>
                </section>
                <section>
-                 <h3 className="text-xs font-bold text-red-500 uppercase mb-3 border-b border-red-100 dark:border-red-900 pb-1">残高修正 (リセット)</h3>
+                 <h3 className="text-xs font-bold text-red-500 uppercase mb-3 border-b border-red-100 dark:border-red-900 pb-1">残高修正 (手動オフセット)</h3>
                  <div className="space-y-3">
-                   <div className="flex items-center justify-between"><label className="text-xs font-bold text-gray-600 dark:text-gray-300">生活費 残高</label><input type="number" className="w-32 p-2 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900 rounded-lg text-right font-mono text-sm" value={tempResetValues.living} onChange={(e)=>setTempResetValues({...tempResetValues, living: Number(e.target.value)})} /></div>
-                   <div className="flex items-center justify-between"><label className="text-xs font-bold text-gray-600 dark:text-gray-300">特別費 残高</label><input type="number" className="w-32 p-2 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900 rounded-lg text-right font-mono text-sm" value={tempResetValues.special} onChange={(e)=>setTempResetValues({...tempResetValues, special: Number(e.target.value)})} /></div>
+                   <div className="flex items-center justify-between"><label className="text-xs font-bold text-gray-600 dark:text-gray-300">生活費(ｱﾝｺﾝﾄﾛｰﾙ) 残高</label><input type="number" className="w-32 p-2 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900 rounded-lg text-right font-mono text-sm" value={tempResetValues.livingBalance} onChange={(e)=>setTempResetValues({...tempResetValues, livingBalance: Number(e.target.value)})} /></div>
+                   {surplusAction === 'target' && (
+                       <div className="flex items-center justify-between"><label className="text-xs font-bold text-gray-600 dark:text-gray-300">ターゲットプール 残高</label><input type="number" className="w-32 p-2 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900 rounded-lg text-right font-mono text-sm" value={tempResetValues.targetPool} onChange={(e)=>setTempResetValues({...tempResetValues, targetPool: Number(e.target.value)})} /></div>
+                   )}
+                   <div className="flex items-center justify-between"><label className="text-xs font-bold text-gray-600 dark:text-gray-300">特別費(ｺﾝﾄﾛｰﾙ) 残高</label><input type="number" className="w-32 p-2 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900 rounded-lg text-right font-mono text-sm" value={tempResetValues.special} onChange={(e)=>setTempResetValues({...tempResetValues, special: Number(e.target.value)})} /></div>
                    <div className="flex items-center justify-between"><label className="text-xs font-bold text-gray-600 dark:text-gray-300">貯金(現金) 残高</label><input type="number" className="w-32 p-2 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900 rounded-lg text-right font-mono text-sm" value={tempResetValues.investCash} onChange={(e)=>setTempResetValues({...tempResetValues, investCash: Number(e.target.value)})} /></div>
                    <div className="flex items-center justify-between"><label className="text-xs font-bold text-gray-600 dark:text-gray-300">投資(資産) 残高</label><input type="number" className="w-32 p-2 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900 rounded-lg text-right font-mono text-sm" value={tempResetValues.investStock} onChange={(e)=>setTempResetValues({...tempResetValues, investStock: Number(e.target.value)})} /></div>
                  </div>
@@ -1671,14 +1671,6 @@ export default function Home() {
                         </button>
                       )}
                     </div>
-                    
-                    {/* 月次残高記録の表示（無制限モード時） */}
-                                      </div>
-                                  </div>
-                              ))}
-                           </div>
-                        </div>
-                    )}
                 </div>
 
                 <div>
