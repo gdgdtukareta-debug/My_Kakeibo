@@ -903,26 +903,12 @@ export default function Home() {
         lastProcessedPayday: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`
       };
 
-      // 生活費の残高修正ロジック
-      const diff = tempResetValues.living - balance;
-      let newHistory = [...history];
-      if (diff !== 0) {
-          newHistory.push({
-              amount: Math.abs(diff),
-              category: "その他",
-              memo: "手動による残高調整",
-              date: new Date().toISOString(),
-              type: diff > 0 ? 'income' : 'expense'
-          });
-      }
-      
       await updateDoc(docRef, { 
           settings: newSettings, 
           subscriptions: subscriptions, 
           savings_balance: tempResetValues.special, 
           invest_cash_balance: tempResetValues.investCash, 
-          invest_stock_balance: tempResetValues.investStock,
-          history: newHistory
+          invest_stock_balance: tempResetValues.investStock
       });
 
       setIsSettingMode(false);
