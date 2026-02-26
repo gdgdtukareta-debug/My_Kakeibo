@@ -437,7 +437,7 @@ export default function Home() {
            const dataSize = new Blob([JSON.stringify(data)]).size;
            const warningThreshold = 950 * 1024; 
            if (dataSize > warningThreshold) {
-               alert(`⚠️【データ容量警告】\n保存データが上限(1MB)に近づいています。(現在約${Math.round(dataSize/1024)}KB)\n古い履歴やアーカイブを手落で削除してください。`);
+               alert(`⚠️【データ容量警告】\n保存データが上限(1MB)に近づいています。(現在約${Math.round(dataSize/1024)}KB)\n古い履歴やアーカイブを手動で削除してください。`);
            }
         }
       } else {
@@ -865,6 +865,9 @@ export default function Home() {
       const confirmAdd = confirm(`設定を更新しますか？\n(残高リセット値も適用されます)`);
       if (!confirmAdd) return;
       
+      const docSnap = await getDoc(docRef);
+      const currentSettings = docSnap.data()?.settings || {};
+
       const diffLiving = tempResetValues.livingBalance - balance;
       const newLivingOffset = livingBalanceOffset + diffLiving;
 
@@ -873,12 +876,13 @@ export default function Home() {
           newTargetItem.currentAmount = tempResetValues.targetPool;
       }
 
+      // 既存のsettingsを展開し、lastProcessedPaydayなどの値が破壊されないようにマージする
       const newSettings = { 
+        ...currentSettings,
         appMode, tempIncomeInvestRatio,
         dailyBudget, monthlyLivingBudget, livingBudgetMode, payday, monthlySavingTarget, monthlyInvestmentTarget, 
         isCsvMode, theme, nisaSettings, isTacticsMode: appMode === 'simple' ? false : isTacticsMode, isUnlimitedArchive,
-        surplusAction, targetItem: newTargetItem, livingBalanceOffset: newLivingOffset,
-        lastProcessedPayday: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`
+        surplusAction, targetItem: newTargetItem, livingBalanceOffset: newLivingOffset
       };
       
       await updateDoc(docRef, { 
