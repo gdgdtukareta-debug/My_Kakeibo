@@ -545,6 +545,9 @@ export default function Home() {
         currentLastProcessedPayday = targetPaydayStr;
         dataModified = true;
       } else if (currentLastProcessedPayday === "") {
+        // 初回実行時のみ、新月の予算を追加
+        currentSavings += currentMonthlySaving;
+        currentInvestCash += currentMonthlyInvestment;
         currentLastProcessedPayday = targetPaydayStr;
         dataModified = true;
       }
