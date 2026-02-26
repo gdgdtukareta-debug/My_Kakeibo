@@ -35,11 +35,6 @@ type TargetItem = {
   currentAmount: number;
 };
 
-type MonthlyBalanceRecord = {
-  month: string;
-  uncontrol: number;
-  control: number;
-};
 
 type AppMode = 'simple' | 'technical';
 type ThemeOption = 'light' | 'dark' | 'system';
@@ -249,7 +244,6 @@ export default function Home() {
 
   const [nisaSettings, setNisaSettings] = useState({ enabled: false, amount: 0, day: 1, lastProcessedMonth: "" });
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
-  const [monthlyBalances, setMonthlyBalances] = useState<MonthlyBalanceRecord[]>([]);
   
   const [expense, setExpense] = useState("");
   const [memo, setMemo] = useState(""); 
@@ -339,7 +333,6 @@ export default function Home() {
       setSavings(0);
       setInvestCash(0);
       setInvestStock(0);
-      setMonthlyBalances([]);
     } catch (error) { console.error(error); }
   };
 
@@ -392,7 +385,7 @@ export default function Home() {
       let currentTempRatio = 50;
       let currentUnlimitedArchive = false;
 
-      let currentMonthlyBalances: MonthlyBalanceRecord[] = [];
+      // let currentMonthlyBalances: MonthlyBalanceRecord[] = [];
       let isTacticsModeNow = false;
 
       if (docSnap.exists()) {
@@ -440,7 +433,7 @@ export default function Home() {
         rawHistory = data.history || [];
         currentArchives = data.archives || {};
         currentSubs = data.subscriptions || [];
-        currentMonthlyBalances = data.monthlyBalances || [];
+        // currentMonthlyBalances = data.monthlyBalances || [];
 
         if (currentUnlimitedArchive) {
            const dataSize = new Blob([JSON.stringify(data)]).size;
@@ -450,7 +443,7 @@ export default function Home() {
            }
         }
       } else {
-        await setDoc(docRef, { savings_balance: 0, invest_cash_balance: 0, invest_stock_balance: 0, history: [], settings: {}, archives: [], subscriptions: [], monthlyBalances: [] });
+        await setDoc(docRef, { savings_balance: 0, invest_cash_balance: 0, invest_stock_balance: 0, history: [], settings: {}, archives: [], subscriptions: [] });
       }
 
       const now = new Date();
@@ -501,14 +494,7 @@ export default function Home() {
         }
 
         // 月次残高の記録（無制限モード時）
-        if (currentUnlimitedArchive) {
-            const prevPaydayStr = `${prevPayday.getFullYear()}/${String(prevPayday.getMonth() + 1).padStart(2, '0')}/${String(prevPayday.getDate()).padStart(2, '0')}`;
-            currentMonthlyBalances.push({
-                month: prevPaydayStr,
-                uncontrol: surplus, // 月末着地時点の生活費残高
-                control: currentSavings // 月末着地時点の特別費残高
-            });
-        }
+        // unlimited archive monthly balance logging removed per user request
 
         currentSavings += currentMonthlySaving;
         currentInvestCash += currentMonthlyInvestment;
@@ -589,7 +575,6 @@ export default function Home() {
           history: rawHistory,
           archives: currentArchives,
           subscriptions: updatedSubs,
-          monthlyBalances: currentMonthlyBalances,
           "settings.lastProcessedPayday": currentLastProcessedPayday,
           "settings.nisaSettings": currentNisa,
           "settings.targetItem": currentTargetItem
@@ -602,7 +587,6 @@ export default function Home() {
       setSubscriptions(updatedSubs);
       setArchives(currentArchives);
       setTargetItem(currentTargetItem);
-      setMonthlyBalances(currentMonthlyBalances);
 
       const sortedHistory = [...rawHistory].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       setHistory(sortedHistory);
@@ -1689,25 +1673,6 @@ export default function Home() {
                     </div>
                     
                     {/* 月次残高記録の表示（無制限モード時） */}
-                    {isUnlimitedArchive && monthlyBalances.length > 0 && (
-                        <div className="bg-white dark:bg-gray-800 p-5 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700">
-                           <h3 className="text-[10px] font-bold text-gray-400 dark:text-gray-500 mb-4 uppercase tracking-widest flex items-center justify-between">
-                               <span>月次残高記録 (無制限モード)</span>
-                               <span className="bg-green-100 text-green-600 px-1.5 py-0.5 rounded text-[8px]">Saved</span>
-                           </h3>
-                           <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                              {monthlyBalances.slice().reverse().map((rec, i) => (
-                                  <div key={i} className="flex justify-between items-center text-xs p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-100 dark:border-gray-600/50">
-                                      <span className="font-mono text-gray-500 dark:text-gray-400 font-bold">{rec.month}〜</span>
-                                      <div className="flex gap-3 text-right">
-                                          <div className="flex flex-col">
-                                              <span className="text-[8px] text-blue-400">生活(アンコン)</span>
-                                              <span className={`font-mono font-bold ${rec.uncontrol < 0 ? 'text-red-500' : 'text-blue-600 dark:text-blue-400'}`}>¥{rec.uncontrol.toLocaleString()}</span>
-                                          </div>
-                                          <div className="flex flex-col pl-2 border-l border-gray-200 dark:border-gray-600">
-                                              <span className="text-[8px] text-pink-400">特別(コン)</span>
-                                              <span className={`font-mono font-bold ${rec.control < 0 ? 'text-red-500' : 'text-pink-600 dark:text-pink-400'}`}>¥{rec.control.toLocaleString()}</span>
-                                          </div>
                                       </div>
                                   </div>
                               ))}
