@@ -42,7 +42,49 @@ type SurplusAction = 'save' | 'target';
 
 type Archives = { [key: string]: Transaction[] };
 
-// --- Tactics Mode 定義コンテンツ (分割) ---
+// --- 休日・祝日判定と給料日計算ロジック ---
+// APIから取得した祝日データを保持する変数
+let fetchedHolidays: string[] = [];
+
+// APIエラー時のフォールバック用（2024〜2026年）
+const fallbackHolidays = [
+  "2024-01-01", "2024-01-08", "2024-02-12", "2024-02-23", "2024-03-20", "2024-04-29", "2024-05-03", "2024-05-04", "2024-05-06", "2024-07-15", "2024-08-12", "2024-09-16", "2024-09-22", "2024-09-23", "2024-10-14", "2024-11-03", "2024-11-04", "2024-11-23",
+  "2025-01-01", "2025-01-13", "2025-02-11", "2025-02-23", "2025-02-24", "2025-03-20", "2025-04-29", "2025-05-03", "2025-05-04", "2025-05-05", "2025-05-06", "2025-07-21", "2025-08-11", "2025-09-15", "2025-09-23", "2025-10-13", "2025-11-03", "2025-11-23", "2025-11-24",
+  "2026-01-01", "2026-01-12", "2026-02-11", "2026-02-23", "2026-03-20", "2026-04-29", "2026-05-03", "2026-05-04", "2026-05-05", "2026-05-06", "2026-07-20", "2026-08-11", "2026-09-21", "2026-09-22", "2026-09-23", "2026-10-12", "2026-11-03", "2026-11-23"
+];
+
+// 初期化時に非同期で日本の祝日カレンダーAPIを取得
+if (typeof window !== "undefined") {
+    fetch("https://holidays-jp.github.io/api/v1/date.json")
+        .then(res => res.json())
+        .then(data => {
+            fetchedHolidays = Object.keys(data);
+        })
+        .catch(() => console.error("祝日データの取得に失敗しました。フォールバックを使用します。"));
+}
+
+const isHolidayOrWeekend = (d: Date) => {
+  const day = d.getDay();
+  if (day === 0 || day === 6) return true; // 日・土
+  const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const holidaysList = fetchedHolidays.length > 0 ? fetchedHolidays : fallbackHolidays;
+  return holidaysList.includes(dateStr);
+};
+
+const getActualPayday = (year: number, month: number, paydaySetting: number) => {
+  // 指定月の日数を超える場合は末日とする
+  let date = new Date(year, month, paydaySetting);
+  if (date.getMonth() !== month) {
+      date = new Date(year, month + 1, 0);
+  }
+  // 土日祝なら前倒し（前日へ）
+  while (isHolidayOrWeekend(date)) {
+      date.setDate(date.getDate() - 1);
+  }
+  return date;
+};
+
+// --- Tactics Mode 定義コンテンツ ---
 const UncontrolContent = () => (
   <div className="border-l-4 border-blue-500 pl-3">
     <h4 className="font-bold text-blue-600 dark:text-blue-400 mb-1 text-sm flex items-center gap-2">
@@ -118,7 +160,6 @@ const DefenseFundContent = () => (
   </div>
 );
 
-// --- Tactics Guide コンポーネント (統合版) ---
 const TacticsGuide = ({ type }: { type: 'uncontrol' | 'control' | 'defense' | 'all' }) => (
   <div className="bg-gray-50 dark:bg-gray-800/50 p-5 rounded-2xl text-xs text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 leading-relaxed space-y-6">
     {(type === 'all' || type === 'uncontrol') && <UncontrolContent />}
@@ -127,11 +168,8 @@ const TacticsGuide = ({ type }: { type: 'uncontrol' | 'control' | 'defense' | 'a
   </div>
 );
 
-// --- 使い方ガイドコンポーネント (共通化) ---
 const HelpGuide = () => (
   <div className="bg-gray-50 dark:bg-gray-800/50 p-5 rounded-2xl text-xs text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 leading-relaxed space-y-6">
-    
-    {/* コンセプト */}
     <div>
       <h4 className="font-bold text-indigo-600 dark:text-indigo-400 mb-2 flex items-center gap-2 text-sm">
         <span className="text-lg">👛</span> 3つの財布とは？
@@ -145,8 +183,6 @@ const HelpGuide = () => (
         <li><span className="font-bold text-indigo-500">貯金・投資</span>：未来のために守り、増やすお金。</li>
       </ul>
     </div>
-
-    {/* ステップ1: 設定 */}
     <div>
       <h4 className="font-bold text-gray-700 dark:text-gray-200 mb-2 flex items-center gap-2">
         <span className="bg-gray-200 dark:bg-gray-700 w-5 h-5 rounded-full flex items-center justify-center text-[10px]">1</span>
@@ -159,8 +195,6 @@ const HelpGuide = () => (
         ※自動的に黄金比率（5:2:3）で各財布に予算が振り分けられます。
       </p>
     </div>
-
-    {/* ステップ2: 入力 */}
     <div>
       <h4 className="font-bold text-gray-700 dark:text-gray-200 mb-2 flex items-center gap-2">
         <span className="bg-gray-200 dark:bg-gray-700 w-5 h-5 rounded-full flex items-center justify-center text-[10px]">2</span>
@@ -173,8 +207,6 @@ const HelpGuide = () => (
         選んだカテゴリに合わせて、自動的に正しい財布（生活費や特別費）から残高が引かれます。
       </p>
     </div>
-
-    {/* ステップ3: 修正 */}
     <div>
       <h4 className="font-bold text-gray-700 dark:text-gray-200 mb-2 flex items-center gap-2">
         <span className="bg-gray-200 dark:bg-gray-700 w-5 h-5 rounded-full flex items-center justify-center text-[10px]">3</span>
@@ -188,11 +220,9 @@ const HelpGuide = () => (
 );
 
 export default function Home() {
-  // --- Auth State ---
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
 
-  // --- 基本設定 State ---
   const [appMode, setAppMode] = useState<AppMode>('simple');
   const [totalMonthlyIncome, setTotalMonthlyIncome] = useState(0);
   const [livingBudgetMode, setLivingBudgetMode] = useState<BudgetMode>('daily');
@@ -203,23 +233,19 @@ export default function Home() {
   const [monthlySavingTarget, setMonthlySavingTarget] = useState(0); 
   const [monthlyInvestmentTarget, setMonthlyInvestmentTarget] = useState(0); 
 
-  // --- 欲しい物・余剰金・臨時収入設定 State ---
   const [surplusAction, setSurplusAction] = useState<SurplusAction>('save');
   const [targetItem, setTargetItem] = useState<TargetItem | null>(null);
-  const [tempIncomeInvestRatio, setTempIncomeInvestRatio] = useState(50); // 投資への按分割合(%)
+  const [tempIncomeInvestRatio, setTempIncomeInvestRatio] = useState(50); 
   
-  // --- 資産 State ---
   const [balance, setBalance] = useState(0);            
   const [savings, setSavings] = useState(0);            
   const [investCash, setInvestCash] = useState(0);      
   const [investStock, setInvestStock] = useState(0);    
   const [totalSpent, setTotalSpent] = useState(0);
 
-  // --- NISA & Subscriptions ---
   const [nisaSettings, setNisaSettings] = useState({ enabled: false, amount: 0, day: 1, lastProcessedMonth: "" });
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   
-  // --- UI State ---
   const [expense, setExpense] = useState("");
   const [memo, setMemo] = useState(""); 
   const [category, setCategory] = useState("食費");
@@ -235,46 +261,30 @@ export default function Home() {
   const [isUnlimitedArchive, setIsUnlimitedArchive] = useState(false); 
   const [secretCode, setSecretCode] = useState(""); 
   
-  // --- モーダル用 State ---
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editIndex, setEditIndex] = useState<number | null>(null);
   const [editForm, setEditForm] = useState({ amount: 0, category: "", memo: "", date: "" });
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false); 
   const [tacticsGuideType, setTacticsGuideType] = useState<'uncontrol' | 'control' | 'defense' | 'all' | null>(null);
   
-  // 回収・取崩用モーダル
   const [isRecoverModalOpen, setIsRecoverModalOpen] = useState(false);
   const [recoverAmount, setRecoverAmount] = useState("");
   const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState("");
 
-  // --- テーマ & リセット用 ---
   const [theme, setTheme] = useState<ThemeOption>('system');
   const [tempResetValues, setTempResetValues] = useState({ special: 0, investCash: 0, investStock: 0 });
 
-  // カテゴリ定義
   const normalCategories = ["食費", "日用品", "趣味", "仕事", "その他", "特別支出", "投資", "貯金", "臨時収入", "投資回収", "積立取崩"];
   const tacticsCategories = ["アンコントロール", "コントロール", "投資", "貯金", "臨時収入", "投資回収", "積立取崩"];
 
-  // --- グラフ用カラー設定 ---
   const categoryColors: Record<string, string> = {
-      "食費": "#f97316", // Orange
-      "日用品": "#06b6d4", // Cyan
-      "趣味": "#ec4899", // Pink
-      "仕事": "#64748b", // Slate
-      "その他": "#94a3b8", // Gray
-      "特別支出": "#ef4444", // Red
-      "アンコントロール": "#3b82f6", // Blue
-      "コントロール": "#ec4899", // Pink
-      "投資": "#8b5cf6", // Violet
-      "貯金": "#10b981", // Emerald
-      "臨時収入": "#fbbf24", // Amber (Gold)
-      "投資回収": "#6366f1", // Indigo (回収)
-      "積立取崩": "#a5b4fc", // Indigo Light
+      "食費": "#f97316", "日用品": "#06b6d4", "趣味": "#ec4899", "仕事": "#64748b", "その他": "#94a3b8", "特別支出": "#ef4444", 
+      "アンコントロール": "#3b82f6", "コントロール": "#ec4899", "投資": "#8b5cf6", "貯金": "#10b981", "臨時収入": "#fbbf24", 
+      "投資回収": "#6366f1", "積立取崩": "#a5b4fc",
   };
   const getCategoryColor = (cat: string) => categoryColors[cat] || "#cbd5e1";
 
-  // --- 初期化 & Auth監視 ---
   useEffect(() => {
     const today = new Date();
     setInputDate(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`);
@@ -298,7 +308,6 @@ export default function Home() {
     applyTheme(theme);
   }, [theme]);
 
-  // モード切り替え時に初期カテゴリを設定
   useEffect(() => {
       if (isTacticsMode) {
           if (!tacticsCategories.includes(category)) setCategory("アンコントロール");
@@ -307,7 +316,6 @@ export default function Home() {
       }
   }, [isTacticsMode]);
 
-  // --- ログイン処理 ---
   const handleLogin = async () => {
     try {
       const provider = new GoogleAuthProvider();
@@ -329,7 +337,6 @@ export default function Home() {
     } catch (error) { console.error(error); }
   };
 
-  // --- 5:2:3 自動計算ロジック ---
   const calculateBudgetDistribution = () => {
     if (totalMonthlyIncome <= 0) {
       alert("総予算を入力してください");
@@ -348,7 +355,6 @@ export default function Home() {
     setMonthlyInvestmentTarget(invest);
   };
 
-  // --- データ読み込み & 自動処理 ---
   const loadData = async () => {
     if (!user) return;
     setLoading(true);
@@ -373,7 +379,7 @@ export default function Home() {
       let currentArchives: Archives = {};
       let currentSubs: Subscription[] = [];
       let currentNisa = { enabled: false, amount: 0, day: 1, lastProcessedMonth: "" };
-      let lastAccessedMonth = "";
+      let currentLastProcessedPayday = "";
 
       let currentSurplusAction: SurplusAction = 'save';
       let currentTargetItem: TargetItem | null = null;
@@ -392,7 +398,7 @@ export default function Home() {
         currentPayday = s.payday || 25;
         currentMonthlySaving = s.monthlySavingTarget || 0;
         currentMonthlyInvestment = s.monthlyInvestmentTarget || 0;
-        lastAccessedMonth = s.lastAccessedMonth || "";
+        currentLastProcessedPayday = s.lastProcessedPayday || "";
         setTheme(s.theme || 'system');
         setIsCsvMode(s.isCsvMode || false);
         currentNisa = s.nisaSettings || currentNisa;
@@ -425,12 +431,11 @@ export default function Home() {
         currentArchives = data.archives || {};
         currentSubs = data.subscriptions || [];
 
-        // --- データ容量の概算と警告 ---
         if (currentUnlimitedArchive) {
            const dataSize = new Blob([JSON.stringify(data)]).size;
-           const warningThreshold = 950 * 1024; // 約950KB
+           const warningThreshold = 950 * 1024; 
            if (dataSize > warningThreshold) {
-               alert(`⚠️【データ容量警告】\n保存データが上限(1MB)に近づいています。(現在約${Math.round(dataSize/1024)}KB)\n\nこれ以上データが増えると保存に失敗する可能性があります。\n設定画面から「過去データのダウンロード(CSV)」を行い、古い履歴やアーカイブを手動で削除してください。`);
+               alert(`⚠️【データ容量警告】\n保存データが上限(1MB)に近づいています。(現在約${Math.round(dataSize/1024)}KB)\n古い履歴やアーカイブを手動で削除してください。`);
            }
         }
       } else {
@@ -438,20 +443,42 @@ export default function Home() {
       }
 
       const now = new Date();
+      const todayZero = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const currentMonthKey = `${now.getFullYear()}-${now.getMonth()}`;
 
-      // 1. 月替わり判定
-      let isMonthChanged = false;
-      if (lastAccessedMonth !== "" && lastAccessedMonth !== currentMonthKey) {
+      // --- 給料日判定の計算 ---
+      let targetPayday = getActualPayday(now.getFullYear(), now.getMonth(), currentPayday);
+      if (todayZero.getTime() < targetPayday.getTime()) {
+          targetPayday = getActualPayday(now.getFullYear(), now.getMonth() - 1, currentPayday);
+      }
+      const targetPaydayStr = `${targetPayday.getFullYear()}-${String(targetPayday.getMonth() + 1).padStart(2, '0')}-${String(targetPayday.getDate()).padStart(2, '0')}`;
+
+      let dataModified = false;
+
+      // 1. 給料日ベースの処理
+      if (currentLastProcessedPayday !== targetPaydayStr && currentLastProcessedPayday !== "") {
         
-        const prevRegularSpent = rawHistory
-          .filter(item => !["特別支出", "投資", "貯金", "臨時収入", "コントロール", "投資回収", "積立取崩"].includes(item.category))
-          .reduce((sum, item) => sum + item.amount, 0);
+        const prevPayday = getActualPayday(targetPayday.getFullYear(), targetPayday.getMonth() - 1, currentPayday);
+
+        const oldHistoryToArchive: Transaction[] = [];
+        const keptHistory: Transaction[] = [];
+        let prevRegularSpent = 0;
+
+        rawHistory.forEach(item => {
+            const itemDate = new Date(item.date);
+            if (itemDate < targetPayday) {
+                oldHistoryToArchive.push(item);
+                if (itemDate >= prevPayday && !["特別支出", "投資", "貯金", "臨時収入", "コントロール", "投資回収", "積立取崩"].includes(item.category)) {
+                    prevRegularSpent += item.amount;
+                }
+            } else {
+                keptHistory.push(item);
+            }
+        });
 
         let surplus = 0;
         if (currentMode === 'daily') {
-            const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, currentPayday);
-            const diffDays = Math.ceil(Math.abs(now.getTime() - lastMonthDate.getTime()) / (1000 * 60 * 60 * 24));
+            const diffDays = Math.ceil((targetPayday.getTime() - prevPayday.getTime()) / (1000 * 60 * 60 * 24));
             surplus = (diffDays * currentBudget) - prevRegularSpent;
         } else {
             surplus = currentMonthlyLiving - prevRegularSpent;
@@ -460,7 +487,6 @@ export default function Home() {
         currentSavings += currentMonthlySaving;
         currentInvestCash += currentMonthlyInvestment;
 
-        // 余剰金の分配 (テクニカルモードでのみTargetへ)
         if (surplus > 0) {
            if (currentAppMode === 'technical' && currentSurplusAction === 'target' && currentTargetItem) {
                currentTargetItem.currentAmount += surplus;
@@ -469,24 +495,28 @@ export default function Home() {
            }
         }
 
-        currentArchives[lastAccessedMonth] = rawHistory;
+        if (oldHistoryToArchive.length > 0) {
+            currentArchives[targetPaydayStr] = oldHistoryToArchive;
+        }
+        
         const sortedKeys = Object.keys(currentArchives).sort();
-        // ★無制限モードが無効な場合のみ、古いデータを削除する
         if (!currentUnlimitedArchive && sortedKeys.length > 6) {
           const newArchives: Archives = {};
           sortedKeys.slice(-6).forEach(key => newArchives[key] = currentArchives[key]);
           currentArchives = newArchives;
         }
 
-        rawHistory = [];
-        isMonthChanged = true;
+        rawHistory = keptHistory;
+        currentLastProcessedPayday = targetPaydayStr;
+        dataModified = true;
+      } else if (currentLastProcessedPayday === "") {
+        currentLastProcessedPayday = targetPaydayStr;
+        dataModified = true;
       }
 
-      // 2. サブスク (テクニカルモードでのみ処理)
-      let dataModified = false;
+      // 2. サブスク (月次処理)
       const todayDate = now.getDate();
       let updatedSubs = currentSubs;
-      
       if (currentAppMode === 'technical') {
           updatedSubs = currentSubs.map(sub => {
             const isDue = sub.lastPaidMonth !== currentMonthKey;
@@ -503,7 +533,7 @@ export default function Home() {
           });
       }
 
-      // 3. NISA (テクニカルモードでのみ処理)
+      // 3. NISA (月次処理)
       if (currentAppMode === 'technical' && currentNisa.enabled && currentNisa.lastProcessedMonth !== currentMonthKey && todayDate >= currentNisa.day) {
         dataModified = true;
         currentInvestCash -= currentNisa.amount;
@@ -513,7 +543,7 @@ export default function Home() {
         setNisaSettings(currentNisa);
       }
 
-      if (isMonthChanged || dataModified || lastAccessedMonth === "") {
+      if (dataModified) {
         await updateDoc(docRef, {
           savings_balance: currentSavings,
           invest_cash_balance: currentInvestCash,
@@ -521,7 +551,7 @@ export default function Home() {
           history: rawHistory,
           archives: currentArchives,
           subscriptions: updatedSubs,
-          "settings.lastAccessedMonth": currentMonthKey,
+          "settings.lastProcessedPayday": currentLastProcessedPayday,
           "settings.nisaSettings": currentNisa,
           "settings.targetItem": currentTargetItem
         });
@@ -549,14 +579,8 @@ export default function Home() {
       rawHistory.forEach(item => {
         if (item.type !== 'transfer') {
             totalAll += item.amount;
-            
-            if (catTotals[item.category] !== undefined) {
-               catTotals[item.category] += item.amount;
-            }
-            if (item.category === "投資回収" || item.category === "積立取崩") {
-                totalAll -= item.amount;
-            }
-
+            if (catTotals[item.category] !== undefined) catTotals[item.category] += item.amount;
+            if (item.category === "投資回収" || item.category === "積立取崩") totalAll -= item.amount;
             if (!["特別支出", "コントロール", "投資", "貯金", "臨時収入", "投資回収", "積立取崩"].includes(item.category)) {
               totalRegular += item.amount;
             }
@@ -566,9 +590,7 @@ export default function Home() {
       
       let currentBalance = 0;
       if (currentMode === 'daily') {
-          let startDate = new Date(now.getFullYear(), now.getMonth(), currentPayday);
-          if (now < startDate) startDate = new Date(now.getFullYear(), now.getMonth() - 1, currentPayday);
-          const daysFromStart = Math.floor(Math.abs(now.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+          const daysFromStart = Math.floor((now.getTime() - targetPayday.getTime()) / (1000 * 60 * 60 * 24)) + 1;
           currentBalance = (daysFromStart * currentBudget) - totalRegular;
       } else {
           currentBalance = currentMonthlyLiving - totalRegular;
@@ -591,7 +613,6 @@ export default function Home() {
     if (user) { loadData(); }
   }, [user]);
 
-  // --- 支払い処理 ---
   const handlePayment = async () => {
     if (!user) return;
     const amount = Number(expense);
@@ -617,7 +638,6 @@ export default function Home() {
         newInvestStock += amount;
         type = 'transfer';
       } else if (category === "臨時収入") {
-        // テクニカルモード ＋ 欲しい物(プール金)設定がある場合、按分処理を実行
         if (appMode === 'technical' && newTargetItem && surplusAction === 'target') {
             investAmt = Math.floor(amount * (tempIncomeInvestRatio / 100));
             poolAmt = amount - investAmt;
@@ -646,7 +666,6 @@ export default function Home() {
         amount, category, memo, date: recordDate.toISOString(), type 
       };
       
-      // 臨時収入の分割情報があれば履歴に付与（削除・修正時のロールバック用）
       if (isSplit) {
           newHistoryItem.isSplit = true;
           newHistoryItem.investAmount = investAmt;
@@ -676,7 +695,6 @@ export default function Home() {
     } catch (e) { alert("保存に失敗しました"); }
   };
 
-  // --- 回収処理 ---
   const handleRecover = async () => {
       if (!user) return;
       const amount = Number(recoverAmount);
@@ -717,7 +735,6 @@ export default function Home() {
       }
   };
   
-  // --- ターゲット達成後の購入処理 (全額) ---
   const handlePurchaseTarget = async () => {
       if (!user || !targetItem) return;
       
@@ -749,7 +766,7 @@ export default function Home() {
           
           const newSettings = {
               ...((await getDoc(docRef)).data()?.settings || {}),
-              targetItem: { ...targetItem, currentAmount: 0 } // プール金をリセット（目標自体は残す運用も可能にするため）
+              targetItem: { ...targetItem, currentAmount: 0 } 
           };
 
           await updateDoc(docRef, {
@@ -766,7 +783,6 @@ export default function Home() {
       }
   };
 
-  // --- ターゲットの指定金額取り崩し ---
   const handlePartialWithdraw = async () => {
       if (!user || !targetItem) return;
       const amount = Number(withdrawAmount);
@@ -824,7 +840,6 @@ export default function Home() {
       }
   };
 
-  // --- 設定更新 ---
   const handleUpdateSettings = async () => {
     if (!user) return;
     try {
@@ -837,7 +852,7 @@ export default function Home() {
         dailyBudget, monthlyLivingBudget, livingBudgetMode, payday, monthlySavingTarget, monthlyInvestmentTarget, 
         isCsvMode, theme, nisaSettings, isTacticsMode: appMode === 'simple' ? false : isTacticsMode, isUnlimitedArchive,
         surplusAction, targetItem,
-        lastAccessedMonth: `${new Date().getFullYear()}-${new Date().getMonth()}` 
+        lastProcessedPayday: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`
       };
       
       await updateDoc(docRef, { settings: newSettings, subscriptions: subscriptions, savings_balance: tempResetValues.special, invest_cash_balance: tempResetValues.investCash, invest_stock_balance: tempResetValues.investStock });
@@ -847,13 +862,11 @@ export default function Home() {
     } catch (e) { alert("更新失敗"); }
   };
 
-  // --- 削除処理 ---
   const deleteItem = async (index: number) => {
     if (!user) return;
     if (!confirm("削除しますか？")) return;
     const item = history[index];
     
-    // 最新のFirestoreデータを取得して整合性を保つ
     const docRef = doc(db, "users", user.uid);
     const docSnap = await getDoc(docRef);
     const currentData = docSnap.data();
@@ -893,7 +906,6 @@ export default function Home() {
     loadData();
   };
 
-  // --- 編集モード開始 ---
   const startEdit = (index: number) => {
     const item = history[index];
     setEditIndex(index);
@@ -906,7 +918,6 @@ export default function Home() {
     setIsEditModalOpen(true);
   };
 
-  // --- 編集保存処理 ---
   const handleUpdateTransaction = async () => {
     if (editIndex === null || !user) return;
     
@@ -919,7 +930,6 @@ export default function Home() {
       const oldItem = history[editIndex];
       let ns = savings, nic = investCash, nis = investStock;
       
-      // 1. ロールバック（元の値を差し引く/戻す）
       const revert = (item: Transaction, add: boolean) => {
           const sign = add ? 1 : -1;
           const amt = item.amount;
@@ -941,7 +951,6 @@ export default function Home() {
       }
       revert(oldItem, true);
 
-      // 2. 新しい値の適用
       const newAmount = Number(editForm.amount);
       let isNewSplit = false;
       let newInvestAmt = newAmount;
@@ -962,7 +971,7 @@ export default function Home() {
                    nic += amt;
                }
            }
-           else if (cat === "臨時収入") nic += amt; // 上記で処理済のためここは到達しないが安全策
+           else if (cat === "臨時収入") nic += amt; 
            else if (cat === "投資回収") { nic += amt; nis -= amt; }
            else if (cat === "積立取崩") { ns += amt; }
       }
@@ -1072,7 +1081,6 @@ export default function Home() {
         {/* Header */}
         <div className="flex justify-between items-center mb-6 pt-2">
           <div>
-            {/* 無制限モード時のタイトルデザイン変更 */}
             <h1 className={`text-xl font-bold tracking-tight ${isUnlimitedArchive && appMode === 'technical' ? 'text-transparent bg-clip-text bg-gradient-to-r from-amber-500 to-pink-500 drop-shadow-sm' : 'dark:text-white'}`}>
               3つの財布 {(isUnlimitedArchive && appMode === 'technical') && <span className="text-lg text-amber-500 align-top">∞</span>}
             </h1>
@@ -1098,7 +1106,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* モーダル類 */}
         {isHelpModalOpen && (
             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                 <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-full max-w-sm animation-fade-in border border-gray-100 dark:border-gray-700 max-h-[80vh] overflow-y-auto">
@@ -1229,7 +1236,6 @@ export default function Home() {
         )}
 
         {isSettingMode ? (
-          // --- 設定画面 ---
           <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-xl border border-gray-100 dark:border-gray-700 overflow-hidden animation-fade-in max-w-md mx-auto">
              <div className="bg-blue-600 p-4 text-center">
                <h2 className="text-white font-bold text-sm tracking-widest uppercase">Settings</h2>
@@ -1386,7 +1392,6 @@ export default function Home() {
                    <div className="flex items-center justify-between"><span className="text-xs text-gray-500">CSV出力機能</span><input type="checkbox" checked={isCsvMode} onChange={(e)=>setIsCsvMode(e.target.checked)} /></div>
                    {isCsvMode && <button onClick={downloadCSV} className="mt-2 text-xs text-green-600 underline block mb-4">過去データのダウンロード</button>}
                    
-                   {/* 開発者/裏メニュー (テクニカルモードでのみ表示) */}
                    {appMode === 'technical' && (
                      <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
                          <div className="flex justify-between items-center mb-2">
@@ -1419,10 +1424,8 @@ export default function Home() {
              </div>
           </div>
         ) : (
-          // --- メイン画面 ---
           <div className="space-y-6 animate-fade-in-up">
             
-            {/* 1. ダッシュボード (PCでは横並び) */}
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               <div className="bg-white dark:bg-gray-800 p-4 rounded-3xl shadow-sm border border-blue-50 dark:border-gray-700 relative overflow-hidden group">
                   <div className="absolute top-0 right-0 w-16 h-16 bg-blue-50 dark:bg-blue-900/20 rounded-bl-full -mr-4 -mt-4 transition-transform group-hover:scale-110"></div>
@@ -1510,7 +1513,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Target Card (テクニカルモードでのみ表示) */}
             {(appMode === 'technical' && surplusAction === 'target' && targetItem) && (
                <div className={`p-4 rounded-2xl shadow-sm text-white relative overflow-hidden animate-fade-in transition-all duration-500 ${isTargetReached ? 'bg-gradient-to-r from-yellow-400 to-orange-500 ring-4 ring-yellow-200 dark:ring-yellow-900' : 'bg-gradient-to-r from-pink-500 to-rose-500'}`}>
                   <div className="absolute opacity-10 top-[-10px] right-[-10px] w-24 h-24 bg-white rounded-full blur-xl"></div>
@@ -1544,12 +1546,9 @@ export default function Home() {
                </div>
             )}
 
-            {/* 2カラムレイアウト */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 
-                {/* 左カラム: 入力 + 履歴 */}
                 <div className="space-y-6">
-                    {/* 入力エリア */}
                     <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-lg p-5 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700">
                       <div className="flex flex-wrap gap-2 mb-4 justify-center">
                         {currentCategories.map(cat => (
@@ -1589,7 +1588,6 @@ export default function Home() {
                       </div>
                     </div>
 
-                    {/* 履歴リスト */}
                     <div className="bg-white dark:bg-gray-800 p-5 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700">
                       <h3 className="text-[10px] font-bold text-gray-400 dark:text-gray-500 mb-4 uppercase tracking-widest">直近の履歴</h3>
                       <div className="space-y-4">
@@ -1624,7 +1622,6 @@ export default function Home() {
                         {history.length === 0 && <p className="text-center text-xs text-gray-300 py-4">履歴はありません</p>}
                       </div>
                       
-                      {/* Read More ボタン */}
                       {history.length > 5 && (
                         <button 
                           onClick={() => setShowAllHistory(!showAllHistory)}
@@ -1636,7 +1633,6 @@ export default function Home() {
                     </div>
                 </div>
 
-                {/* 右カラム: グラフ */}
                 <div>
                     {chartData && totalSpent > 0 && (
                       <div className="bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700 h-full flex flex-col justify-center">
