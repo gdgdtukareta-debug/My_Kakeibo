@@ -281,13 +281,13 @@ export default function Home() {
   const [theme, setTheme] = useState<ThemeOption>('system');
   const [tempResetValues, setTempResetValues] = useState({ special: 0, investCash: 0, investStock: 0, living: 0 });
 
-  const normalCategories = ["食費", "日用品", "趣味", "仕事", "その他", "特別支出", "投資", "貯金", "臨時収入", "投資回収", "積立取崩"];
-  const tacticsCategories = ["アンコントロール", "コントロール", "投資", "貯金", "臨時収入", "投資回収", "積立取崩"];
+  const normalCategories = ["食費", "日用品", "趣味", "仕事", "その他", "特別支出", "投資", "貯金", "臨時収入", "投資回収", "積立取崩", "プール金利用"];
+  const tacticsCategories = ["アンコントロール", "コントロール", "投資", "貯金", "臨時収入", "投資回収", "積立取崩", "プール金利用"];
 
   const categoryColors: Record<string, string> = {
       "食費": "#f97316", "日用品": "#06b6d4", "趣味": "#ec4899", "仕事": "#64748b", "その他": "#94a3b8", "特別支出": "#ef4444", 
       "アンコントロール": "#3b82f6", "コントロール": "#ec4899", "投資": "#8b5cf6", "貯金": "#10b981", "臨時収入": "#fbbf24", 
-      "投資回収": "#6366f1", "積立取崩": "#a5b4fc",
+      "投資回収": "#6366f1", "積立取崩": "#a5b4fc", "プール金利用": "#f43f5e"
   };
   const getCategoryColor = (cat: string) => categoryColors[cat] || "#cbd5e1";
 
@@ -480,7 +480,7 @@ export default function Home() {
             const itemDate = new Date(item.date);
             if (itemDate < targetPayday) {
                 oldHistoryToArchive.push(item);
-                if (itemDate >= prevPayday && !["特別支出", "コントロール", "投資", "貯金", "臨時収入", "投資回収", "積立取崩"].includes(item.category)) {
+                if (itemDate >= prevPayday && !["特別支出", "コントロール", "投資", "貯金", "臨時収入", "投資回収", "積立取崩", "プール金利用"].includes(item.category)) {
                     // 以前の履歴の精算
                     if (item.type === 'income') {
                         prevRegularSpent -= item.amount;
@@ -601,7 +601,7 @@ export default function Home() {
       setArchives(currentArchives);
       setTargetItem(currentTargetItem);
       setMonthlyBalances(currentMonthlyBalances);
-      setLastProcessedPaydayState(currentLastProcessedPayday); // 状態として保持（バグ修正）
+      setLastProcessedPaydayState(currentLastProcessedPayday);
 
       const sortedHistory = [...rawHistory].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       setHistory(sortedHistory);
@@ -621,7 +621,7 @@ export default function Home() {
             if (item.category === "投資回収" || item.category === "積立取崩") totalAll -= item.amount;
             
             // 生活費残高の計算ロジック（収入対応）
-            if (!["特別支出", "コントロール", "投資", "貯金", "臨時収入", "投資回収", "積立取崩"].includes(item.category)) {
+            if (!["特別支出", "コントロール", "投資", "貯金", "臨時収入", "投資回収", "積立取崩", "プール金利用"].includes(item.category)) {
               if (item.type === 'income') {
                   totalRegular -= item.amount;
               } else {
@@ -678,6 +678,10 @@ export default function Home() {
 
       if (category === "特別支出" || category === "コントロール") {
         newSavings -= amount;
+      } else if (category === "プール金利用") {
+        if (newTargetItem) {
+            newTargetItem.currentAmount = Math.max(0, newTargetItem.currentAmount - amount);
+        }
       } else if (category === "貯金") {
         newInvestCash -= amount;
       } else if (category === "投資") {
@@ -729,7 +733,7 @@ export default function Home() {
           invest_stock_balance: newInvestStock 
       };
 
-      if (isSplit && newTargetItem) {
+      if ((isSplit || category === "プール金利用") && newTargetItem) {
           updatePayload["settings.targetItem"] = newTargetItem;
           setTargetItem(newTargetItem);
       }
@@ -785,7 +789,7 @@ export default function Home() {
   const handlePurchaseTarget = async () => {
       if (!user || !targetItem) return;
       
-      const confirmPurchase = confirm(`「${targetItem.name}」を取り崩しますか？\n\n支出記録と同時に、積み立てた資金(${targetItem.currentAmount.toLocaleString()}円)を特別費に充当し、現在の積立額を0にリセットします。`);
+      const confirmPurchase = confirm(`「${targetItem.name}」を取り崩しますか？\nプール金残高(${targetItem.currentAmount.toLocaleString()}円)を使用して支出を記録し、残高を0にリセットします。\n※特別費(コントロール)には影響しません。`);
       if (!confirmPurchase) return;
 
       try {
@@ -793,23 +797,15 @@ export default function Home() {
           const now = new Date();
           const purchaseAmount = targetItem.currentAmount; 
           
-          const expenseRecord: Transaction = {
+          const withdrawRecord: Transaction = {
               amount: purchaseAmount,
-              category: (isTacticsMode && appMode === 'technical') ? "コントロール" : "特別支出",
-              memo: `プール金利用: ${targetItem.name}`,
+              category: "プール金利用",
+              memo: `プール金より: ${targetItem.name}`,
               date: now.toISOString(),
               type: 'expense'
           };
           
-          const incomeRecord: Transaction = {
-              amount: purchaseAmount,
-              category: "積立取崩",
-              memo: `プール金より充当: ${targetItem.name}`,
-              date: now.toISOString(),
-              type: 'income'
-          };
-          
-          const newHistory = [...history, expenseRecord, incomeRecord];
+          const newHistory = [...history, withdrawRecord];
           
           const newSettings = {
               ...((await getDoc(docRef)).data()?.settings || {}),
@@ -847,23 +843,15 @@ export default function Home() {
           const docRef = doc(db, "users", user.uid);
           const now = new Date();
           
-          const expenseRecord: Transaction = {
+          const withdrawRecord: Transaction = {
               amount: amount,
-              category: (isTacticsMode && appMode === 'technical') ? "コントロール" : "特別支出",
+              category: "プール金利用",
               memo: `プール金一部利用: ${targetItem.name}`,
               date: now.toISOString(),
               type: 'expense'
           };
           
-          const incomeRecord: Transaction = {
-              amount: amount,
-              category: "積立取崩",
-              memo: `プール金より一部充当: ${targetItem.name}`,
-              date: now.toISOString(),
-              type: 'income'
-          };
-          
-          const newHistory = [...history, expenseRecord, incomeRecord];
+          const newHistory = [...history, withdrawRecord];
           const newCurrentAmount = targetItem.currentAmount - amount;
           
           const newSettings = {
@@ -899,7 +887,7 @@ export default function Home() {
         dailyBudget, monthlyLivingBudget, livingBudgetMode, payday, monthlySavingTarget, monthlyInvestmentTarget, 
         isCsvMode, theme, nisaSettings, isTacticsMode: appMode === 'simple' ? false : isTacticsMode, isUnlimitedArchive,
         surplusAction, targetItem,
-        lastProcessedPayday: lastProcessedPaydayState // バグ修正：今日の日付で強制上書きせず状態を維持
+        lastProcessedPayday: lastProcessedPaydayState
       };
 
       // 生活費の残高修正ロジック
@@ -942,6 +930,11 @@ export default function Home() {
 
     let ns = savings, nic = investCash, nis = investStock;
     if (item.category === "特別支出" || item.category === "コントロール") ns += item.amount;
+    else if (item.category === "プール金利用") {
+        if (currentTargetItem) {
+            currentTargetItem.currentAmount += item.amount;
+        }
+    }
     else if (item.category === "貯金") nic += item.amount;
     else if (item.category === "投資") { nic += item.amount; nis -= item.amount; }
     else if (item.category === "臨時収入") {
@@ -965,7 +958,7 @@ export default function Home() {
         invest_cash_balance: nic, 
         invest_stock_balance: nis 
     };
-    if (item.isSplit) {
+    if (item.isSplit || item.category === "プール金利用") {
         updatePayload["settings.targetItem"] = currentTargetItem;
     }
 
@@ -1001,6 +994,11 @@ export default function Home() {
           const sign = add ? 1 : -1;
           const amt = item.amount;
           if (item.category === "特別支出" || item.category === "コントロール") ns += amt * sign;
+          else if (item.category === "プール金利用") {
+              if (currentTargetItem) {
+                  currentTargetItem.currentAmount += amt * sign;
+              }
+          }
           else if (item.category === "貯金") nic += amt * sign;
           else if (item.category === "投資") { nic += amt * sign; nis -= amt * sign; }
           else if (item.category === "臨時収入") {
@@ -1025,6 +1023,11 @@ export default function Home() {
 
       const apply = (cat: string, amt: number) => {
            if (cat === "特別支出" || cat === "コントロール") ns -= amt;
+           else if (cat === "プール金利用") {
+               if (currentTargetItem) {
+                   currentTargetItem.currentAmount = Math.max(0, currentTargetItem.currentAmount - amt);
+               }
+           }
            else if (cat === "貯金") nic -= amt;
            else if (cat === "投資") { nic -= amt; nis += amt; }
            else if (cat === "臨時収入") {
@@ -1080,7 +1083,7 @@ export default function Home() {
         invest_stock_balance: nis 
       };
 
-      if (oldItem.isSplit || isNewSplit) {
+      if (oldItem.isSplit || isNewSplit || oldItem.category === "プール金利用" || editForm.category === "プール金利用") {
           updatePayload["settings.targetItem"] = currentTargetItem;
       }
 
@@ -1169,7 +1172,7 @@ export default function Home() {
                 ?
             </button>
             <button onClick={() => setIsSettingMode(!isSettingMode)} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-2 rounded-full shadow-sm hover:bg-gray-50 transition-all">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-600 dark:text-gray-300"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1-2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-600 dark:text-gray-300"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
             </button>
           </div>
         </div>
@@ -1624,7 +1627,7 @@ export default function Home() {
                           <button key={cat} onClick={() => setCategory(cat)}
                             className={`px-3 py-1.5 rounded-full text-[10px] font-bold transition-all ${
                               category === cat 
-                                ? (['投資','貯金','臨時収入'].includes(cat) ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200 dark:shadow-none' : (cat === '特別支出' || cat === 'コントロール') ? 'bg-pink-500 text-white shadow-md shadow-pink-200 dark:shadow-none' : (cat === '投資回収' ? 'bg-gray-600 text-white' : (cat === '積立取崩' ? 'bg-indigo-300 text-white' : 'bg-blue-600 text-white shadow-md shadow-blue-200 dark:shadow-none'))) 
+                                ? (['投資','貯金','臨時収入'].includes(cat) ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200 dark:shadow-none' : (cat === '特別支出' || cat === 'コントロール' || cat === 'プール金利用') ? 'bg-pink-500 text-white shadow-md shadow-pink-200 dark:shadow-none' : (cat === '投資回収' ? 'bg-gray-600 text-white' : (cat === '積立取崩' ? 'bg-indigo-300 text-white' : 'bg-blue-600 text-white shadow-md shadow-blue-200 dark:shadow-none'))) 
                                 : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
                             }`}>
                             {cat}
@@ -1646,7 +1649,7 @@ export default function Home() {
                                 className="w-full p-2 bg-gray-50 dark:bg-gray-900 rounded-lg text-[10px] font-mono text-gray-500 dark:text-gray-400 outline-none text-center"
                                 value={inputDate} onChange={(e) => setInputDate(e.target.value)}
                              />
-                             <button onClick={handlePayment} className={`h-full text-white rounded-xl font-bold text-sm shadow-lg active:scale-95 transition-all uppercase tracking-widest ${['投資','貯金','臨時収入'].includes(category) ? 'bg-indigo-600' : (category === '特別支出' || category === 'コントロール') ? 'bg-pink-500' : 'bg-blue-600'}`}>
+                             <button onClick={handlePayment} className={`h-full text-white rounded-xl font-bold text-sm shadow-lg active:scale-95 transition-all uppercase tracking-widest ${['投資','貯金','臨時収入'].includes(category) ? 'bg-indigo-600' : (category === '特別支出' || category === 'コントロール' || category === 'プール金利用') ? 'bg-pink-500' : 'bg-blue-600'}`}>
                                決定
                              </button>
                           </div>
@@ -1665,7 +1668,7 @@ export default function Home() {
                             <div key={index} className="flex items-start justify-between border-b border-gray-50 dark:border-gray-700 pb-3 last:border-0">
                               <div className="flex-1">
                                 <div className="flex items-center gap-2 mb-1">
-                                  <span className={`text-[8px] font-bold px-2 py-0.5 rounded-full uppercase ${['投資','貯金','臨時収入'].includes(item.category) ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-300' : (item.category === '特別支出' || item.category === 'コントロール') ? 'bg-pink-100 text-pink-600 dark:bg-pink-900 dark:text-pink-300' : (item.category === '投資回収' ? 'bg-gray-200 text-gray-600' : (item.category === '積立取崩' ? 'bg-indigo-50 text-indigo-400' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300'))}`}>{item.category}</span>
+                                  <span className={`text-[8px] font-bold px-2 py-0.5 rounded-full uppercase ${['投資','貯金','臨時収入'].includes(item.category) ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-300' : (item.category === '特別支出' || item.category === 'コントロール' || item.category === 'プール金利用') ? 'bg-pink-100 text-pink-600 dark:bg-pink-900 dark:text-pink-300' : (item.category === '投資回収' ? 'bg-gray-200 text-gray-600' : (item.category === '積立取崩' ? 'bg-indigo-50 text-indigo-400' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300'))}`}>{item.category}</span>
                                   <span className="text-[10px] text-gray-400 font-mono">{new Date(item.date).toLocaleDateString()}</span>
                                 </div>
                                 <div className="flex items-baseline gap-2">
