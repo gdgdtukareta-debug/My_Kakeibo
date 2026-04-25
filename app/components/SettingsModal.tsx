@@ -31,7 +31,7 @@ type SettingsModalProps = {
     setMonthlySavingTarget: (val: number) => void;
     monthlyInvestmentTarget: number;
     setMonthlyInvestmentTarget: (val: number) => void;
-    tempResetValues: { special: number, investCash: number, investStock: number, livingBalance: number, targetPool: number };
+    tempResetValues: { special: number, investCash: number, investStock: number, living: number };
     setTempResetValues: (val: any) => void;
     nisaSettings: NisaSettings;
     setNisaSettings: (val: NisaSettings) => void;
@@ -189,17 +189,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = (props) => {
                     </div>
                 </section>
                 <section>
-                    <h3 className="text-xs font-bold text-red-500 uppercase mb-3 border-b border-red-100 dark:border-red-900 pb-1">残高修正 (手動オフセット)</h3>
-                    <div className="space-y-3">
-                        <div className="flex items-center justify-between"><label className="text-xs font-bold text-gray-600 dark:text-gray-300">生活費(ｱﾝｺﾝﾄﾛｰﾙ) 残高</label><input type="number" className="w-32 p-2 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900 rounded-lg text-right font-mono text-sm" value={tempResetValues.livingBalance} onChange={(e) => setTempResetValues({ ...tempResetValues, livingBalance: Number(e.target.value) })} /></div>
-                        {surplusAction === 'target' && (
-                            <div className="flex items-center justify-between"><label className="text-xs font-bold text-gray-600 dark:text-gray-300">ターゲットプール 残高</label><input type="number" className="w-32 p-2 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900 rounded-lg text-right font-mono text-sm" value={tempResetValues.targetPool} onChange={(e) => setTempResetValues({ ...tempResetValues, targetPool: Number(e.target.value) })} /></div>
-                        )}
-                        <div className="flex items-center justify-between"><label className="text-xs font-bold text-gray-600 dark:text-gray-300">特別費(ｺﾝﾄﾛｰﾙ) 残高</label><input type="number" className="w-32 p-2 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900 rounded-lg text-right font-mono text-sm" value={tempResetValues.special} onChange={(e) => setTempResetValues({ ...tempResetValues, special: Number(e.target.value) })} /></div>
-                        <div className="flex items-center justify-between"><label className="text-xs font-bold text-gray-600 dark:text-gray-300">貯金(現金) 残高</label><input type="number" className="w-32 p-2 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900 rounded-lg text-right font-mono text-sm" value={tempResetValues.investCash} onChange={(e) => setTempResetValues({ ...tempResetValues, investCash: Number(e.target.value) })} /></div>
-                        <div className="flex items-center justify-between"><label className="text-xs font-bold text-gray-600 dark:text-gray-300">投資(資産) 残高</label><input type="number" className="w-32 p-2 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900 rounded-lg text-right font-mono text-sm" value={tempResetValues.investStock} onChange={(e) => setTempResetValues({ ...tempResetValues, investStock: Number(e.target.value) })} /></div>
-                    </div>
-                </section>
+                 <h3 className="text-xs font-bold text-red-500 uppercase mb-3 border-b border-red-100 dark:border-red-900 pb-1">残高修正 (リセット)</h3>
+                 <div className="space-y-3">
+                   <div className="flex items-center justify-between"><label className="text-xs font-bold text-gray-600 dark:text-gray-300">{(isTacticsMode && appMode === 'technical') ? "アンコントロール(生活費) 残高" : "生活費 残高"}</label><input type="number" className="w-32 p-2 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900 rounded-lg text-right font-mono text-sm" value={tempResetValues.living} onChange={(e)=>setTempResetValues({...tempResetValues, living: Number(e.target.value)})} /></div>
+                   <div className="flex items-center justify-between"><label className="text-xs font-bold text-gray-600 dark:text-gray-300">{(isTacticsMode && appMode === 'technical') ? "コントロール(特別費) 残高" : "特別費 残高"}</label><input type="number" className="w-32 p-2 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900 rounded-lg text-right font-mono text-sm" value={tempResetValues.special} onChange={(e)=>setTempResetValues({...tempResetValues, special: Number(e.target.value)})} /></div>
+                   <div className="flex items-center justify-between"><label className="text-xs font-bold text-gray-600 dark:text-gray-300">貯金(現金) 残高</label><input type="number" className="w-32 p-2 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900 rounded-lg text-right font-mono text-sm" value={tempResetValues.investCash} onChange={(e)=>setTempResetValues({...tempResetValues, investCash: Number(e.target.value)})} /></div>
+                   <div className="flex items-center justify-between"><label className="text-xs font-bold text-gray-600 dark:text-gray-300">投資(資産) 残高</label><input type="number" className="w-32 p-2 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900 rounded-lg text-right font-mono text-sm" value={tempResetValues.investStock} onChange={(e)=>setTempResetValues({...tempResetValues, investStock: Number(e.target.value)})} /></div>
+                 </div>
+               </section>
 
                 {appMode === 'technical' && (
                     <section>
