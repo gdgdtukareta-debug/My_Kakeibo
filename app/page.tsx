@@ -619,7 +619,7 @@ export default function Home() {
       setHistory(sortedHistory);
 
       // --- 残高計算 ---
-      const currentCategories = (isTacticsModeNow && appMode === 'technical') ? tacticsCategories : normalCategories;
+      const currentCategories = (isTacticsModeNow && currentAppMode === 'technical') ? tacticsCategories : normalCategories;
       const catTotals: { [key: string]: number } = {};
       currentCategories.forEach(c => catTotals[c] = 0);
 
@@ -653,14 +653,15 @@ export default function Home() {
       }
       setBalance(currentBalance);
       
-      // リセット用の一時変数に最新の残高をセット
       setTempResetValues({ special: currentSavings, investCash: currentInvestCash, investStock: currentInvestStock, living: currentBalance });
 
+      const pieCategories = currentCategories.filter(c => catTotals[c] > 0 && !["臨時収入", "投資回収", "積立取崩"].includes(c));
+
       setChartData({
-        labels: currentCategories,
+        labels: pieCategories,
         datasets: [{
-          data: currentCategories.map(c => catTotals[c]),
-          backgroundColor: currentCategories.map(c => getCategoryColor(c)),
+          data: pieCategories.map(c => catTotals[c]),
+          backgroundColor: pieCategories.map(c => getCategoryColor(c)),
           borderWidth: 0,
         }]
       });
@@ -1554,7 +1555,7 @@ export default function Home() {
                 </div>
 
                 <div>
-                    {chartData && totalSpent > 0 && (
+                    {chartData && chartData.labels && chartData.labels.length > 0 && (
                       <div className="bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700 h-full flex flex-col justify-center">
                         <h3 className="text-[10px] font-bold text-gray-400 dark:text-gray-500 mb-6 uppercase tracking-widest text-center">今月の内訳</h3>
                         <div className="px-12 pb-4">
